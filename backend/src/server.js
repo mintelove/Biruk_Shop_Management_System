@@ -1,0 +1,106 @@
+import "./utils/dnsPatch.js";
+import "dotenv/config";
+
+// Prevent silent crashes by handling uncaught errors and rejections
+process.on("unhandledRejection", (reason, promise) => {
+  // eslint-disable-next-line no-console
+  console.error("CRITICAL: Unhandled Rejection at:", promise, "reason:", reason);
+  if (reason && reason.stack) {
+    // eslint-disable-next-line no-console
+    console.error(reason.stack);
+  }
+});
+
+process.on("uncaughtException", (error) => {
+  // eslint-disable-next-line no-console
+  console.error("CRITICAL: Uncaught Exception thrown:", error);
+  if (error && error.stack) {
+    // eslint-disable-next-line no-console
+    console.error(error.stack);
+  }
+});
+import http from "http";
+import express from "express";
+import cors from "cors";
+import { Server } from "socket.io";
+import { connectDB } from "./config/db.js";
+import authRoutes from "./routes/auth.js";
+import productRoutes from "./routes/products.js";
+import salesRoutes from "./routes/sales.js";
+import dashboardRoutes from "./routes/dashboard.js";
+import adminRoutes from "./routes/admin.js";
+import analyticsRoutes from "./routes/analytics.js";
+import reportRoutes from "./routes/reports.js";
+import categoryRoutes from "./routes/categories.js";
+import editRequestRoutes from "./routes/editRequests.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { setSocketInstance } from "./utils/socket.js";
+import { seedAdmin } from "./seedAdmin.js";
+import { migrateLegacyCurrencyToEtb } from "./utils/currencyMigration.js";
+import { migrateInitialStock } from "./utils/migrateInitialStock.js";
+
+const app = express();
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CLIENT_ORIGIN || "http://localhost:5173"
+  }
+});
+setSocketInstance(io);
+
+app.use(
+  cors({
+    origin: process.env.CLIENT_ORIGIN || "http://localhost:5173"
+  })
+);
+app.use(express.json());
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/sales", salesRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/edit-requests", editRequestRoutes);
+
+app.use(errorHandler);
+
+io.on("connection", (socket) => {
+  // eslint-disable-next-line no-console
+  console.log(`Socket client connected: ${socket.id}`);
+});
+
+const port = process.env.PORT || 5000;
+
+connectDB()
+  .then(() => {
+    // eslint-disable-next-line no-console
+    console.log("MongoDB connected");
+    return migrateLegacyCurrencyToEtb();
+  })
+  .then(migrateInitialStock)
+  .then(seedAdmin)
+  .then(() => {
+    server.listen(port, () => {
+      // eslint-disable-next-line no-console
+      console.log("Server running");
+      // eslint-disable-next-line no-console
+      console.log(`API server listening on port ${port}`);
+    });
+  })
+  .catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error("Failed to start server:", error);
+    if (error && error.stack) {
+      // eslint-disable-next-line no-console
+      console.error(error.stack);
+    }
+    process.exit(1);
+  });
