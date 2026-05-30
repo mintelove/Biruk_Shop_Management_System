@@ -8,20 +8,11 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
-    api
-      .get("/auth/me")
-      .then((res) => setUser(res.data.user))
-      .catch(() => {
-        localStorage.removeItem("token");
-        setUser(null);
-      })
-      .finally(() => setLoading(false));
+    // Always start from Login page by clearing/ignoring existing session tokens on app startup
+    localStorage.removeItem("token");
+    sessionStorage.removeItem("token");
+    setUser(null);
+    setLoading(false);
   }, []);
 
   const refreshUser = async () => {
