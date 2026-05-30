@@ -49,50 +49,44 @@ export const generatePdfReport = ({ dateLabel, metrics, salesData, salesmanName 
         .rect(0, headerHeight - 4, pageWidth, 4)
         .fill(RED_DARK);
 
-      // Shop name in header
+      // Report Title (Top-Left)
       doc
-        .fontSize(22)
+        .fontSize(20)
         .font("Helvetica-Bold")
         .fillColor(WHITE)
-        .text("Yoya Kids Collection By Meski", marginLeft, 18, {
+        .text("Sales Report", marginLeft, 18);
+
+      // Shop name in header (Top-Right)
+      doc
+        .fontSize(16)
+        .font("Helvetica-Bold")
+        .fillColor(WHITE)
+        .text("Sunlight Electric", marginLeft, 18, {
           width: contentWidth,
-          align: "center"
+          align: "right"
         });
 
-      // Salesman name in header
+      // Salesman name in header (Below Title, Left)
       doc
-        .fontSize(11)
+        .fontSize(10)
         .font("Helvetica")
         .fillColor(WHITE)
-        .text(`Salesman: ${salesmanName || "N/A"}`, marginLeft, 48, {
+        .text(`Salesman: ${salesmanName || "N/A"}`, marginLeft, 48);
+
+      // Period (Below Shop Name, Right)
+      doc
+        .fontSize(10)
+        .font("Helvetica-Oblique")
+        .fillColor(WHITE)
+        .text(`Period: ${dateLabel}`, marginLeft, 48, {
           width: contentWidth,
-          align: "center"
+          align: "right"
         });
 
       doc.restore();
 
       // Move cursor below header
       doc.y = headerHeight + 20;
-
-      // ─── Report Title ───
-      doc
-        .fontSize(18)
-        .font("Helvetica-Bold")
-        .fillColor(BLACK)
-        .text("Sales Report", { align: "center" });
-
-      doc.moveDown(0.3);
-      doc
-        .fontSize(10)
-        .font("Helvetica")
-        .fillColor("#666666")
-        .text(`Period: ${dateLabel}`, { align: "center" });
-
-      doc
-        .fontSize(10)
-        .text(`Generated: ${new Date().toISOString().slice(0, 10)}`, { align: "center" });
-
-      doc.moveDown(1);
 
       // ─── GREEN SUMMARY BOX ───
       const summaryBoxY = doc.y;

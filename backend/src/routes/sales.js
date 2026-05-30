@@ -106,68 +106,142 @@ router.get("/export/pdf", protect, async (req, res, next) => {
       .sort({ createdAt: -1 })
       .populate("salesman_id", "name email");
 
-    const doc = new PDFDocument({ margin: 30, size: "A4" });
+    const doc = new PDFDocument({ margin: 30, size: "A4", bufferPages: true });
     const filename = `sales_report_${new Date().toISOString().slice(0, 10)}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
     doc.pipe(res);
 
-    // Header
-    doc.fontSize(18).text("Yoya Kids Collection By Meski", { align: "center" });
-    doc.fontSize(12).moveDown();
-    doc.text(`Salesman: ${req.user.name}`);
-    doc.text(`Report Date: ${new Date().toLocaleDateString()}`);
-    doc.text(`Filter Period: ${getDateLabel(req.query)}`);
-    doc.moveDown();
+    const PAGE_W = 532;     // Usable page width
+    const LEFT = 30;
+    const MAX_Y = 750;
 
-    // Summary (Calculated from filtered data)
+    // Helper to draw row
+    function drawRow(cols, vals, rowY, rowH, isHeader = false) {
+      cols.forEach((col, idx) => {
+        const color = isHeader ? "#ffffff" : "#334155";
+        doc.fillColor(color).text(
+          vals[idx] || "",
+          col.x + 6,
+          rowY + 6,
+          { width: col.w - 12, align: col.align || "left", lineBreak: true }
+        );
+      });
+    }
+
+    // Helper to calculate row height
+    function calcRowHeight(cols, vals, fontSize) {
+      doc.fontSize(fontSize);
+      let maxH = 20;
+      cols.forEach((col, idx) => {
+        const h = doc.heightOfString(vals[idx] || "", { width: col.w - 12 });
+        if (h + 12 > maxH) maxH = h + 12;
+      });
+      return maxH;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // HEADER (MODERN DESIGN)
+    // ══════════════════════════════════════════════════════════════
+    const grad = doc.linearGradient(0, 0, 612, 0);
+    grad.stop(0, "#be123c").stop(1, "#e11d48"); // Crimson gradient
+    doc.rect(0, 0, 612, 100).fill(grad);
+
+    // Left title
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(20)
+      .text("SALES REPORT", LEFT, 20);
+
+    // Right shop name
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(16)
+      .text("Sunlight Electric", LEFT, 20, { width: PAGE_W, align: "right" });
+
+    // Left metadata
+    doc.fillColor("#ffffff").font("Helvetica").fontSize(10)
+      .text(`Salesman: ${req.user.name}`, LEFT, 48);
+
+    // Right metadata
+    doc.fillColor("#ffffff").font("Helvetica-Oblique").fontSize(10)
+      .text(`Period: ${getDateLabel(req.query)}`, LEFT, 48, { width: PAGE_W, align: "right" });
+
+    doc.fillColor("#ffffff").font("Helvetica-Oblique").fontSize(8)
+      .text(`Generated: ${new Date().toLocaleString()}`, LEFT, 68, { width: PAGE_W, align: "right" });
+
+    let y = 120;
+
+    // ══════════════════════════════════════════════════════════════
+    // SUMMARY SECTION (TOP CARDS)
+    // ══════════════════════════════════════════════════════════════
+    const cardW = (PAGE_W - 20) / 3;
+    const drawCard = (x, title, value, color) => {
+      doc.roundedRect(x, y, cardW, 60, 8).fill(color);
+      doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold").text(title.toUpperCase(), x + 10, y + 12);
+      doc.fontSize(16).text(value, x + 10, y + 28);
+    };
+
     const totalRevenue = sales.reduce((sum, s) => sum + (s.total_price || 0), 0);
     const totalItems = sales.reduce((sum, s) => sum + (s.quantity || 0), 0);
-    doc.fontSize(14).text("Summary", { underline: true });
-    doc.fontSize(12).text(`Total Transactions: ${sales.length}`);
-    doc.text(`Total Items Sold: ${totalItems}`);
-    doc.text(`Total Revenue: ${formatCurrencyManual(totalRevenue)}`);
-    doc.moveDown();
 
-    // Table
-    doc.fontSize(14).text("Transaction History", { underline: true });
-    doc.moveDown(0.5);
+    drawCard(LEFT, "Total Revenue", formatCurrencyManual(totalRevenue), "#10b981");
+    drawCard(LEFT + cardW + 10, "Transactions", sales.length.toString(), "#3b82f6");
+    drawCard(LEFT + (cardW + 10) * 2, "Items Sold", totalItems.toString(), "#f59e0b");
+    y += 85;
 
-    // Table Headers
-    const tableTop = doc.y;
-    const itemX = 30;
-    const qtyX = 250;
-    const priceX = 320;
-    const totalX = 400;
-    const salesmanX = 480;
+    // ══════════════════════════════════════════════════════════════
+    // SECTION: DETAILED TRANSACTIONS
+    // ══════════════════════════════════════════════════════════════
+    doc.fillColor("#1e293b").fontSize(14).font("Helvetica-Bold").text("Transaction History", LEFT, y);
+    y += 22;
 
-    doc.fontSize(10).font("Helvetica-Bold");
-    doc.text("Date", itemX, tableTop);
-    doc.text("Product", itemX + 60, tableTop);
-    doc.text("Qty", qtyX, tableTop);
-    doc.text("Price", priceX, tableTop);
-    doc.text("Total", totalX, tableTop);
-    doc.text("Salesman", salesmanX, tableTop);
+    const tCols = [
+      { x: LEFT,       w: 60,  align: "left" },   // Date
+      { x: LEFT + 60,  w: 160, align: "left" },   // Product
+      { x: LEFT + 220, w: 30,  align: "center" }, // Qty
+      { x: LEFT + 250, w: 70,  align: "right" },  // Price
+      { x: LEFT + 320, w: 75,  align: "right" },  // Total
+      { x: LEFT + 395, w: 137, align: "right" }   // Salesman
+    ];
+    const tHeaders = ["Date", "Product", "Qty", "Price", "Total", "Salesman"];
 
-    doc.moveTo(30, tableTop + 15).lineTo(565, tableTop + 15).stroke();
-    doc.font("Helvetica").fontSize(9);
+    const drawTHeader = (atY) => {
+      doc.rect(LEFT, atY, PAGE_W, 25).fill("#be123c"); // Crimson header
+      drawRow(tCols, tHeaders, atY, 25, true);
+      return atY + 25;
+    };
 
-    let currentY = tableTop + 25;
-    sales.forEach((sale) => {
-      if (currentY > 750) {
-        doc.addPage();
-        currentY = 50;
+    y = drawTHeader(y);
+
+    sales.forEach((sale, i) => {
+      const vals = [
+        new Date(sale.createdAt).toISOString().slice(0, 10),
+        sale.product_name || "Unknown",
+        sale.quantity.toString(),
+        sale.unit_price.toFixed(2),
+        sale.total_price.toFixed(2),
+        sale.salesman_id?.name || "N/A"
+      ];
+      const rh = calcRowHeight(tCols, vals, 8);
+      if (y + rh > MAX_Y) { 
+        doc.addPage(); y = 40; 
+        y = drawTHeader(y);
       }
-      const dateStr = new Date(sale.createdAt).toISOString().slice(0, 10);
-      doc.text(dateStr, itemX, currentY);
-      doc.text(sale.product_name, itemX + 60, currentY, { width: 150 });
-      doc.text(sale.quantity.toString(), qtyX, currentY);
-      doc.text(sale.unit_price.toFixed(2), priceX, currentY);
-      doc.text(sale.total_price.toFixed(2), totalX, currentY);
-      doc.text(sale.salesman_id?.name || "N/A", salesmanX, currentY, { width: 80 });
-      currentY += 20;
+
+      if (i % 2 === 0) doc.rect(LEFT, y, PAGE_W, rh).fill("#f8fafc");
+      doc.font("Helvetica").fontSize(8);
+      drawRow(tCols, vals, y, rh, false);
+      y += rh;
     });
+
+    // ── Footer ──
+    const range = doc.bufferedPageRange();
+    for (let pg = 0; pg < range.count; pg++) {
+      doc.switchToPage(pg);
+      doc.fillColor("#94a3b8").fontSize(8).font("Helvetica")
+        .text(
+          `Total Items Sold: ${totalItems}  •  Generated by Shop Management System • ${new Date().toLocaleString()} • Page ${pg + 1} of ${range.count}`,
+          0, 810, { align: "center" }
+        );
+    }
 
     doc.end();
   } catch (error) {
@@ -346,7 +420,7 @@ router.get("/purchases/export/pdf", protect, authorize("salesman", "admin"), asy
     const dateFilter = buildDateFilter(req.query);
     const profitData = await buildProfitData({ ...dateFilter }, req.user);
     const dateLabel = getDateLabel(req.query);
-    const shopName = "Yoya Kids Collection By Meski";
+    const shopName = "Sunlight Electric";
 
     const doc = new PDFDocument({ margin: 30, size: "A4", bufferPages: true });
     const filename = `profit_report_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -399,20 +473,26 @@ router.get("/purchases/export/pdf", protect, authorize("salesman", "admin"), asy
     grad.stop(0, "#11998e").stop(1, "#38ef7d");
     doc.rect(0, 0, 612, 100).fill(grad);
 
-    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(24)
-      .text(shopName, 0, 30, { align: "center" });
-    doc.fontSize(12).font("Helvetica")
-      .text("OFFICIAL PROFIT REPORT", 0, 62, { align: "center", characterSpacing: 1 });
-    doc.fontSize(9).font("Helvetica-Oblique")
-      .text(`Period: ${dateLabel}`, 0, 78, { align: "center" });
+    // Left title
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(20)
+      .text("PROFIT REPORT", LEFT, 20);
+
+    // Right shop name
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(16)
+      .text(shopName, LEFT, 20, { width: PAGE_W, align: "right" });
+
+    // Left metadata
+    doc.fillColor("#ffffff").font("Helvetica").fontSize(10)
+      .text(`Generated By: ${req.user.name} (${req.user.role})`, LEFT, 48);
+
+    // Right metadata
+    doc.fillColor("#ffffff").font("Helvetica-Oblique").fontSize(10)
+      .text(`Period: ${dateLabel}`, LEFT, 48, { width: PAGE_W, align: "right" });
+
+    doc.fillColor("#ffffff").font("Helvetica-Oblique").fontSize(8)
+      .text(`Generated: ${new Date().toLocaleString()}`, LEFT, 68, { width: PAGE_W, align: "right" });
 
     let y = 120;
-
-    // Generated Info
-    doc.fillColor("#64748b").font("Helvetica").fontSize(9)
-      .text(`Report Generated By: ${req.user.name} (${req.user.role})`, LEFT, y);
-    doc.text(`Time: ${new Date().toLocaleString()}`, LEFT, y, { align: "right", width: PAGE_W });
-    y += 25;
 
     // ══════════════════════════════════════════════════════════════
     // SUMMARY SECTION (TOP CARDS)
