@@ -12,6 +12,13 @@ const SearchIcon = () => (
   </svg>
 );
 
+const FilterSearchIcon = () => (
+  <svg className="sales-search-box-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+    <path d="M16 16l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
+
 const DownloadIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -28,6 +35,15 @@ const CheckmarkIcon = () => (
 export const SalesPage = () => {
   const { user } = useAuth();
   const { t, language } = useI18n();
+
+  // Mode Selection
+  const [mode, setMode] = useState(() => {
+    return localStorage.getItem("sales_item_selection_mode") || "category";
+  });
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [productSearch, setProductSearch] = useState("");
+
   const [products, setProducts] = useState([]);
   const [sales, setSales] = useState([]);
   const [form, setForm] = useState({ productId: "", quantity: 1, sellingPrice: "" });
@@ -46,23 +62,46 @@ export const SalesPage = () => {
     return products.find((p) => p._id === form.productId) || null;
   }, [products, form.productId]);
 
+  const handleModeChange = (newMode) => {
+    setMode(newMode);
+    localStorage.setItem("sales_item_selection_mode", newMode);
+    setProductSearch("");
+  };
+
   const fetchData = useCallback(async () => {
     const params = {};
     if (dateFilter) params.date = dateFilter;
     if (startDate) params.startDate = startDate;
     if (endDate) params.endDate = endDate;
 
-    const [productsRes, salesRes] = await Promise.all([
-      api.get("/products"),
-      api.get("/sales", { params })
+    // Fetch sales history and categories list
+    const [salesRes, categoriesRes] = await Promise.all([
+      api.get("/sales", { params }),
+      api.get("/categories")
     ]);
-    setProducts(productsRes.data);
     setSales(salesRes.data.sales || []);
     setSummary(salesRes.data.summary || { totalItemsSold: 0, totalSalesAmount: 0, totalTransactions: 0 });
-    if (!form.productId && productsRes.data[0]) {
-      setForm((prev) => ({ ...prev, productId: productsRes.data[0]._id, sellingPrice: "" }));
+    
+    const fetchedCategories = categoriesRes.data || [];
+    setCategories(fetchedCategories);
+
+    // Auto-select first category if none is selected and in category mode
+    let activeCategory = selectedCategory;
+    if (mode === "category") {
+      if (!activeCategory && fetchedCategories.length > 0) {
+        activeCategory = fetchedCategories[0].name;
+        setSelectedCategory(activeCategory);
+      }
     }
-  }, [form.productId, dateFilter, startDate, endDate]);
+
+    // Fetch products (efficiently filtered by category at database level if in category mode)
+    const prodParams = {};
+    if (mode === "category" && activeCategory) {
+      prodParams.category = activeCategory;
+    }
+    const productsRes = await api.get("/products", { params: prodParams });
+    setProducts(productsRes.data || []);
+  }, [mode, selectedCategory, dateFilter, startDate, endDate]);
 
   useEffect(() => {
     fetchData();
@@ -76,9 +115,49 @@ export const SalesPage = () => {
 
   useSocket("stock:update", fetchData);
 
+  // Client-side filtering for search & out-of-stock items
+  const filteredProducts = useMemo(() => {
+    let list = products;
+
+    // Strictly filter out-of-stock items (quantity > 0)
+    list = list.filter((p) => p.quantity > 0);
+
+    // Search filter
+    if (productSearch.trim()) {
+      const q = productSearch.toLowerCase().trim();
+      list = list.filter((p) => p.name.toLowerCase().includes(q));
+    }
+
+    return list;
+  }, [products, productSearch]);
+
+  // Self-healing product ID selection: Auto-select first match on filter change
+  useEffect(() => {
+    if (filteredProducts.length > 0) {
+      if (!filteredProducts.some((p) => p._id === form.productId)) {
+        setForm((prev) => ({ ...prev, productId: filteredProducts[0]._id, sellingPrice: "" }));
+      }
+    } else {
+      setForm((prev) => ({ ...prev, productId: "", sellingPrice: "" }));
+    }
+  }, [filteredProducts, form.productId]);
+
+  const noProductsMsg = useMemo(() => {
+    const hasNoProductsInCategory = products.filter(p => p.quantity > 0).length === 0;
+    if (mode === "category" && selectedCategory && hasNoProductsInCategory) {
+      return t("sales.noProductsInCategory") || "No products found in this category.";
+    }
+    return null;
+  }, [products, mode, selectedCategory, t]);
+
   const onSale = async (e) => {
     e.preventDefault();
     setError("");
+
+    if (!form.productId) {
+      setError("Please select a product");
+      return;
+    }
 
     // Frontend validation: selling price is REQUIRED
     const trimmedPrice = String(form.sellingPrice).trim();
@@ -117,7 +196,7 @@ export const SalesPage = () => {
     }
   };
 
-  // Real-time client-side search filtering
+  // Real-time client-side search filtering for sales history
   const filteredSales = useMemo(() => {
     if (!search.trim()) return sales;
     const q = search.toLowerCase().trim();
@@ -164,9 +243,35 @@ export const SalesPage = () => {
     <div className="stack">
       <h2>{user?.role === "admin" ? t("sales.allSalesTitle") : t("sales.mySalesTitle")}</h2>
 
+      {/* Item Selection Mode Selector */}
+      <div className="sales-mode-selector-card">
+        <span className="sales-mode-label">{t("sales.searchSortMethod")}:</span>
+        <div className="sales-mode-options">
+          <label className={`sales-mode-btn${mode === "category" ? " active" : ""}`}>
+            <input
+              type="radio"
+              name="itemSelectionMode"
+              checked={mode === "category"}
+              onChange={() => handleModeChange("category")}
+            />
+            {t("sales.sortByCategory")}
+          </label>
+          <label className={`sales-mode-btn${mode === "items" ? " active" : ""}`}>
+            <input
+              type="radio"
+              name="itemSelectionMode"
+              checked={mode === "items"}
+              onChange={() => handleModeChange("items")}
+            />
+            {t("sales.sortByItems")}
+          </label>
+        </div>
+      </div>
+
       <form
         className={`card form-inline sale-form-card${saleSuccess ? " sale-form-card--success" : ""}`}
         onSubmit={onSale}
+        style={{ flexWrap: "wrap", gap: "1rem" }}
       >
         {saleSuccess && (
           <div className="sale-success-overlay">
@@ -174,21 +279,66 @@ export const SalesPage = () => {
             <p className="sale-success-text">Transaction Successful</p>
           </div>
         )}
-        <select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value, sellingPrice: "" })}>
-          {products.map((p) => (
-            <option key={p._id} value={p._id}>
-              {p.name} ({t("sales.stock")}: {p.quantity})
-            </option>
-          ))}
-        </select>
+
+        <div className="sales-product-filters">
+          {mode === "category" && (
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="sales-category-select"
+            >
+              {categories.map((c) => (
+                <option key={c._id} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <div className="sales-search-box-wrap">
+            <FilterSearchIcon />
+            <input
+              className="sales-product-search-input"
+              type="text"
+              placeholder={mode === "category" ? t("sales.searchInCategory") : t("sales.searchAllItems")}
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", flex: 1.5, minWidth: "200px" }}>
+          <select
+            value={form.productId}
+            onChange={(e) => setForm({ ...form, productId: e.target.value, sellingPrice: "" })}
+            disabled={filteredProducts.length === 0}
+            style={{ width: "100%" }}
+          >
+            {filteredProducts.length === 0 ? (
+              <option value="" disabled>
+                {mode === "category" ? t("sales.noProductsInCategory") : "No matching products in stock."}
+              </option>
+            ) : (
+              filteredProducts.map((p) => (
+                <option key={p._id} value={p._id}>
+                  {p.name} ({t("sales.stock")}: {p.quantity})
+                </option>
+              ))
+            )}
+          </select>
+          {noProductsMsg && <span className="no-products-msg">{noProductsMsg}</span>}
+        </div>
+
         <input
           type="number"
           min={1}
           required
           value={form.quantity}
           onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+          style={{ width: "80px" }}
         />
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", minWidth: "140px" }}>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", minWidth: "140px", flex: 1 }}>
           <input
             type="number"
             step="0.01"
@@ -197,6 +347,7 @@ export const SalesPage = () => {
             required
             value={form.sellingPrice}
             onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })}
+            style={{ width: "100%" }}
           />
           {selectedProduct && selectedProduct.minSellingPrice > 0 && (
             <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #94a3b8)", whiteSpace: "nowrap" }}>
@@ -204,7 +355,8 @@ export const SalesPage = () => {
             </span>
           )}
         </div>
-        <button className="btn" type="submit" disabled={saleSuccess}>
+
+        <button className="btn" type="submit" disabled={saleSuccess || filteredProducts.length === 0} style={{ padding: "0.7rem 1.5rem" }}>
           {t("sales.completeSale")}
         </button>
       </form>
@@ -223,7 +375,7 @@ export const SalesPage = () => {
         </div>
         <div className="csv-export-group">
           <label>{t("sales.endDate")}</label>
-          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setDateFilter(""); }} />
+          <input type="date" value={endDate} onChange={(e) => { setDateFilter(""); setStartDate(""); }} />
         </div>
         <div className="csv-export-group" style={{ alignSelf: "flex-end" }}>
           <button
@@ -246,6 +398,7 @@ export const SalesPage = () => {
           </button>
         </div>
       </div>
+
       {/* Summary Metrics */}
       <div className="grid dashboard-metrics-grid sales-summary-grid" style={{ marginBottom: "1rem" }}>
         <div className="card stat-card dashboard-stat-card sales-summary-card">

@@ -1356,6 +1356,445 @@ tbody tr:hover {
 }
 
 /* =========================================================
+   RESET WIZARD
+   ========================================================= */
+
+.reset-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+/* Step indicator */
+.reset-step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0.5rem 0 0.2rem;
+}
+
+.reset-step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 2px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--muted);
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 1;
+}
+
+.reset-step-dot.active {
+  border-color: var(--primary);
+  background: linear-gradient(135deg, var(--primary) 0%, #0d9488 100%);
+  color: #fff;
+  box-shadow: 0 0 0 4px var(--primary-glow);
+  transform: scale(1.1);
+}
+
+.reset-step-dot.completed {
+  border-color: var(--success);
+  background: var(--success);
+  color: #fff;
+}
+
+.reset-step-line {
+  width: 48px;
+  height: 2px;
+  background: var(--input-border);
+  transition: background 0.35s ease;
+}
+
+.reset-step-line.completed {
+  background: var(--success);
+}
+
+/* Step label text below indicator */
+.reset-step-label {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Step title / description */
+.reset-step-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--card-text);
+}
+
+.reset-step-desc {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Checkbox group */
+.reset-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.reset-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.reset-checkbox-item:hover {
+  border-color: var(--primary);
+  background: rgba(16, 185, 129, 0.04);
+  transform: translateX(2px);
+}
+
+.reset-checkbox-item.checked {
+  border-color: var(--primary);
+  background: rgba(16, 185, 129, 0.08);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.reset-checkbox-item.checked.danger {
+  border-color: var(--danger);
+  background: rgba(220, 38, 38, 0.06);
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+
+.reset-checkbox-item input[type="checkbox"] {
+  accent-color: var(--primary);
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.reset-checkbox-item.danger input[type="checkbox"] {
+  accent-color: var(--danger);
+}
+
+.reset-checkbox-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.reset-checkbox-label span:first-child {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--card-text);
+}
+
+.reset-checkbox-label span:last-child:not(:first-child) {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.reset-sales-note {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+[data-theme="dark"] .reset-sales-note {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+/* Password step */
+.reset-password-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.reset-password-field label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* Confirmation summary lists */
+.reset-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.reset-summary-section {
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid;
+}
+
+.reset-summary-section.retain {
+  border-color: rgba(5, 150, 105, 0.3);
+  background: rgba(5, 150, 105, 0.06);
+}
+
+.reset-summary-section.delete {
+  border-color: rgba(220, 38, 38, 0.3);
+  background: rgba(220, 38, 38, 0.06);
+}
+
+[data-theme="dark"] .reset-summary-section.retain {
+  background: rgba(52, 211, 153, 0.08);
+  border-color: rgba(52, 211, 153, 0.2);
+}
+
+[data-theme="dark"] .reset-summary-section.delete {
+  background: rgba(239, 83, 80, 0.08);
+  border-color: rgba(239, 83, 80, 0.2);
+}
+
+.reset-summary-heading {
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reset-summary-section.retain .reset-summary-heading {
+  color: var(--success);
+}
+
+.reset-summary-section.delete .reset-summary-heading {
+  color: var(--danger);
+}
+
+.reset-summary-list {
+  margin: 0;
+  padding: 0 0 0 1.2rem;
+  list-style: none;
+}
+
+.reset-summary-list li {
+  padding: 0.2rem 0;
+  font-size: 0.88rem;
+  color: var(--card-text);
+  position: relative;
+}
+
+.reset-summary-list li::before {
+  position: absolute;
+  left: -1.1rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.reset-summary-section.retain .reset-summary-list li::before {
+  content: "✓";
+  color: var(--success);
+  font-weight: 700;
+}
+
+.reset-summary-section.delete .reset-summary-list li::before {
+  content: "✕";
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* Warning banner */
+.reset-warning-banner {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+}
+
+[data-theme="dark"] .reset-warning-banner {
+  background: rgba(239, 83, 80, 0.1);
+  border-color: rgba(239, 83, 80, 0.25);
+  color: #fca5a5;
+}
+
+/* Lockout banner */
+.reset-lockout-banner {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  color: var(--warning);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+}
+
+[data-theme="dark"] .reset-lockout-banner {
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.2);
+}
+
+/* Attempts remaining hint */
+.reset-attempts-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--warning);
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Result card */
+.reset-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  text-align: center;
+}
+
+.reset-result-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.reset-result-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.reset-result-title.success {
+  color: var(--success);
+}
+
+.reset-result-title.error {
+  color: var(--danger);
+}
+
+.reset-result-msg {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.reset-result-details {
+  text-align: left;
+}
+
+.reset-result-detail-label {
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.reset-result-detail-value {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--card-text);
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .reset-result-detail-value {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Type RESET input in confirm step */
+.reset-confirm-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.reset-confirm-input-group label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* Wider modal variant for the reset wizard */
+.modal-card--wide {
+  max-width: 540px;
+  width: 100%;
+}
+
+/* Button row */
+.reset-btn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.4rem;
+}
+
+.reset-btn-row .btn {
+  min-width: 110px;
+}
+
+/* Error in wizard */
+.reset-error {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  color: var(--danger);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+[data-theme="dark"] .reset-error {
+  background: rgba(239, 83, 80, 0.1);
+  border-color: rgba(239, 83, 80, 0.2);
+  color: #fca5a5;
+}
+
+/* Spinner for reset wizard buttons */
+.reset-spinner-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reset-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* =========================================================
    MODAL
    ========================================================= */
 
@@ -1883,4 +2322,128 @@ tbody tr:hover {
 .btn-danger {
   background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
   color: #fff !important;
+}
+
+/* =========================================================
+   SALES ITEM SELECTION MODE
+   ========================================================= */
+
+.sales-mode-selector-card {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  transition: all 0.25s ease;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.sales-mode-selector-card:hover {
+  box-shadow: var(--card-hover-shadow);
+}
+
+.sales-mode-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  margin: 0;
+}
+
+.sales-mode-options {
+  display: flex;
+  background: var(--bg);
+  padding: 0.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  gap: 0.25rem;
+}
+
+.sales-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.sales-mode-btn input {
+  display: none;
+}
+
+.sales-mode-btn:hover {
+  background: rgba(16, 185, 129, 0.04);
+  color: var(--primary);
+}
+
+.sales-mode-btn.active {
+  background: var(--panel);
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+}
+
+.sales-product-filters {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 2;
+  min-width: 280px;
+}
+
+.sales-category-select {
+  flex: 1;
+  min-width: 160px;
+}
+
+.sales-search-box-wrap {
+  flex: 1.5;
+  min-width: 200px;
+  position: relative;
+}
+
+.sales-product-search-input {
+  width: 100%;
+  padding: 0.65rem 1rem 0.65rem 2.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--input-text);
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.sales-product-search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+  outline: none;
+}
+
+.sales-search-box-icon {
+  position: absolute;
+  left: 0.8rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1rem;
+  height: 1rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.no-products-msg {
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-top: 0.25rem;
+  white-space: nowrap;
 }
