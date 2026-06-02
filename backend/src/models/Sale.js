@@ -13,10 +13,14 @@ const saleSchema = new mongoose.Schema(
     operationUsed: { type: Boolean, default: false },
     priceEditedDirectly: { type: Boolean, default: false },
     edited: { type: Boolean, default: false },
-    status: { type: String, enum: ["active", "returned", "reversed", "pending_return", "return_rejected"], default: "active" },
+    status: { type: String, enum: ["active", "returned", "returned_by_admin", "reversed", "pending_return", "return_rejected"], default: "active" },
     adminMessage: { type: String, default: "" },
     adminUsername: { type: String, default: "" },
-    adminResponseDate: { type: Date }
+    adminResponseDate: { type: Date },
+    returned: { type: Boolean, default: false },
+    returnedByAdmin: { type: Boolean, default: false },
+    returnedAt: { type: Date },
+    returnedBy: { type: String, default: "" }
   },
   { timestamps: true }
 );

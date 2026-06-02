@@ -352,6 +352,10 @@ async function buildProfitData(query, user) {
       adminMessage: s.adminMessage || "",
       adminUsername: s.adminUsername || "",
       adminResponseDate: s.adminResponseDate || null,
+      returned: !!s.returned,
+      returnedByAdmin: !!s.returnedByAdmin,
+      returnedAt: s.returnedAt || null,
+      returnedBy: s.returnedBy || "",
       minSellingPrice
     };
   });
@@ -665,11 +669,15 @@ router.post("/:id/return", protect, authorize("admin"), async (req, res, next) =
       await product.save();
     }
 
-    sale.status = "returned";
+    sale.status = "returned_by_admin";
     sale.operationUsed = true;
     sale.adminUsername = req.user.name || req.user.email || "Admin";
     sale.adminResponseDate = new Date();
     sale.adminMessage = "Customer refund approved and processed.";
+    sale.returned = true;
+    sale.returnedByAdmin = true;
+    sale.returnedAt = new Date();
+    sale.returnedBy = req.user.name || req.user.email || "Admin";
     await sale.save();
 
     emitStockUpdate({ type: "sale-returned", saleId: sale._id, productId: sale.product_id });

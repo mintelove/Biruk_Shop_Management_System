@@ -310,10 +310,14 @@ router.patch("/:id", protect, authorize("admin"), async (req, res, next) => {
             product.quantity += sale.quantity;
             await product.save();
           }
-          sale.status = "returned";
+          sale.status = "returned_by_admin";
           sale.adminMessage = "Customer refund approved and processed.";
           sale.adminUsername = req.user.name || req.user.email || "Admin";
           sale.adminResponseDate = new Date();
+          sale.returned = true;
+          sale.returnedByAdmin = true;
+          sale.returnedAt = new Date();
+          sale.returnedBy = req.user.name || req.user.email || "Admin";
           await sale.save();
 
           emitStockUpdate({ type: "sale-returned", saleId: sale._id, productId: sale.product_id });

@@ -113,19 +113,6 @@ export const PurchasePage = () => {
 
   const activeTransactions = useMemo(() => {
     let txs = data.transactions;
-    // For salesman, hide returned transactions from main table
-    if (!isAdmin) {
-      txs = txs.filter(tx => tx.status !== "returned");
-    }
-    if (!search.trim()) return txs;
-    const q = search.toLowerCase().trim();
-    return txs.filter((tx) =>
-      (tx.product_name || "").toLowerCase().includes(q) || (tx.salesman || "").toLowerCase().includes(q)
-    );
-  }, [data.transactions, search, isAdmin]);
-
-  const returnedTransactions = useMemo(() => {
-    let txs = data.transactions.filter(tx => tx.status === "returned");
     if (!search.trim()) return txs;
     const q = search.toLowerCase().trim();
     return txs.filter((tx) =>
@@ -139,7 +126,9 @@ export const PurchasePage = () => {
     let label = "Completed";
     let color = "#22c55e"; // Green
 
-    if (tx.status === "returned") {
+    const isReturned = tx.returned || tx.status === "returned_by_admin" || tx.status === "returned";
+
+    if (isReturned) {
       label = "✅ Returned By Admin";
       color = "#3b82f6"; // Blue
     } else if (tx.status === "pending_return") {
@@ -166,6 +155,9 @@ export const PurchasePage = () => {
       color = "#10b981"; // Emerald green
     }
 
+    const returnedDate = tx.returnedAt || tx.adminResponseDate || tx.date;
+    const returnedByAdminVal = tx.returnedBy || tx.adminUsername || "Admin";
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
         <span style={{
@@ -174,16 +166,21 @@ export const PurchasePage = () => {
         }}>
           {label}
         </span>
-        {label === "✅ Approved By Admin" && tx.adminUsername && (
+        {label === "✅ Approved By Admin" && (tx.adminUsername || tx.returnedBy) && (
           <div style={{ fontSize: "0.74rem", color: "var(--muted)", marginTop: "0.2rem", lineHeight: "1.3" }}>
-            <div>Approved By: <strong>{tx.adminUsername}</strong></div>
+            <div>Approved By: <strong>{tx.adminUsername || tx.returnedBy}</strong></div>
             <div>Date: <strong>{tx.adminResponseDate ? new Date(tx.adminResponseDate).toISOString().slice(0, 10) : new Date(tx.date).toISOString().slice(0, 10)}</strong></div>
           </div>
         )}
-        {label === "✅ Returned By Admin" && tx.adminUsername && (
+        {label === "✅ Returned By Admin" && (
           <div style={{ fontSize: "0.74rem", color: "var(--muted)", marginTop: "0.2rem", lineHeight: "1.3" }}>
-            <div>Processed By: <strong>{tx.adminUsername}</strong></div>
-            <div>Returned On: <strong>{tx.adminResponseDate ? new Date(tx.adminResponseDate).toISOString().slice(0, 10) : new Date(tx.date).toISOString().slice(0, 10)}</strong></div>
+            <div>Returned Date: <strong>{new Date(returnedDate).toISOString().slice(0, 10)}</strong></div>
+            <div>Approved By: <strong>{returnedByAdminVal}</strong></div>
+            {req && req.reason && (
+              <div style={{ marginTop: "0.15rem", fontStyle: "italic", color: "#64748b" }}>
+                Return Reason: <strong>({req.reason})</strong>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -349,6 +346,8 @@ export const PurchasePage = () => {
   const returnRequests = pendingRequests.filter(r => r.type === "return" || r.type === "cashback");
 
   const renderActions = (tx) => {
+    const isReturned = tx.returned || tx.status === "returned_by_admin" || tx.status === "returned";
+
     if (isAdmin) {
       const pendingReq = editRequests.find(r => r.status === "pending" && String(r.transaction_id?._id || r.transaction_id) === String(tx._id));
       return (
@@ -369,7 +368,7 @@ export const PurchasePage = () => {
             onClick={() => { setEditTx(tx); setEditForm({ sellingPrice: tx.sellingPrice }); setEditError(""); }}>
             ✏️ Edit Price
           </button>
-          {tx.status !== "returned" && (
+          {!isReturned && (
             <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#e11d48" }}
               onClick={() => handleAdminDirectReturn(tx)}>
               ↩️ Return
@@ -382,6 +381,14 @@ export const PurchasePage = () => {
     const userId = user?.id || user?._id;
     const isOwner = String(tx.salesman_id) === String(userId);
     if (!isOwner) return null;
+
+    if (isReturned) {
+      return (
+        <span style={{ color: "var(--muted)", fontSize: "0.78rem", fontStyle: "italic" }}>
+          No Actions Available
+        </span>
+      );
+    }
 
     const latestReq = getRequestStatus(tx._id);
     if (latestReq && latestReq.status === "pending") {
@@ -624,48 +631,7 @@ export const PurchasePage = () => {
         </table>
       </div>
 
-      {/* Salesman: Returned Transactions Collapsible Section */}
-      {!isAdmin && returnedTransactions.length > 0 && (
-        <div className="card profit-table-card" style={{ borderLeft: "4px solid #3b82f6" }}>
-          <details>
-            <summary style={{ fontSize: "1.1rem", fontWeight: 700, cursor: "pointer", outline: "none", padding: "0.2rem 0", userSelect: "none" }}>
-              ↩️ Returned Transactions ({returnedTransactions.length})
-            </summary>
-            <div style={{ marginTop: "1rem" }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>{t("sales.date")}</th>
-                    <th>{t("sales.product")}</th>
-                    <th>{t("sales.qty")}</th>
-                    <th>{t("sales.unitPrice")}</th>
-                    <th>Cost Price</th>
-                    <th>{t("sales.totalProfit")}</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {returnedTransactions.map((tx) => (
-                    <tr key={tx._id} style={{ opacity: 0.7 }}>
-                      <td>{new Date(tx.date).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
-                      <td>{tx.product_name}</td>
-                      <td>{tx.quantity}</td>
-                      <td>{formatCurrency(tx.sellingPrice)}</td>
-                      <td>{formatCurrency(tx.purchasedPrice)}</td>
-                      <td style={{ fontWeight: 600, color: "#94a3b8" }}>
-                        {formatCurrency(tx.profit)}
-                      </td>
-                      <td>
-                        {renderStatusBadge(tx)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </div>
-      )}
+
 
       {/* Salesman: My Request History */}
       {!isAdmin && myRequests.length > 0 && (
