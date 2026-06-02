@@ -15,7 +15,8 @@
     "updateProduct": "Update Product",
     "edit": "Edit",
     "delete": "Delete",
-    "searchProducts": "Search products..."
+    "searchProducts": "Search products...",
+    "clear": "Clear"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -122,7 +123,9 @@
     "categoryManagement": "Category Management",
     "newCategory": "New Category Name",
     "addedSuccess": "Product Added Successfully",
-    "updatedSuccess": "Product Updated Successfully"
+    "updatedSuccess": "Product Updated Successfully",
+    "allCategories": "All Categories",
+    "noProductsInCategory": "No products found in this category."
   },
   "sales": {
     "allSalesTitle": "All Sales",

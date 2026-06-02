@@ -52,6 +52,7 @@ export const ProductsPage = () => {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [form, setForm] = useState(defaultForm);
   const [editingId, setEditingId] = useState(null);
   const [newCatName, setNewCatName] = useState("");
@@ -158,21 +159,71 @@ export const ProductsPage = () => {
     }
   };
 
+  // Client-side category filter for instant UI response
+  const filteredProducts = useMemo(() => {
+    if (!selectedCategory) return products;
+    return products.filter((p) => p.category === selectedCategory);
+  }, [products, selectedCategory]);
+
   const csvExport = useMemo(() => {
     const rows = [
       [t("products.name"), t("products.category"), "Purchased Price", "Min Selling Price", t("products.quantity")],
-      ...products.map((p) => {
+      ...filteredProducts.map((p) => {
         return [p.name, p.category, p.purchasedPrice || 0, p.minSellingPrice || 0, p.quantity];
       })
     ];
     return rows.map((row) => row.join(",")).join("\n");
-  }, [products, t]);
+  }, [filteredProducts, t]);
 
   return (
     <div className="stack">
       <div className="row-between">
         <h2>{t("products.title")}</h2>
         <input placeholder={t("common.searchProducts")} value={search} onChange={(e) => setSearch(e.target.value)} />
+      </div>
+
+      {/* Category Filter */}
+      <div className="category-filter-bar">
+        <div className="category-filter-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+          </svg>
+        </div>
+        <label className="category-filter-label" htmlFor="category-filter-select">
+          {t("products.category") || "Category Filter"}
+        </label>
+        <div className="category-filter-select-wrap">
+          <select
+            id="category-filter-select"
+            className="category-filter-select"
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+          >
+            <option value="">{t("products.allCategories") || "All Categories"}</option>
+            {categories.map((c) => (
+              <option key={c._id} value={c.name}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        {selectedCategory && (
+          <button
+            type="button"
+            className="category-filter-clear"
+            onClick={() => setSelectedCategory("")}
+            title="Clear filter"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+            {t("common.clear") || "Clear"}
+          </button>
+        )}
+        {selectedCategory && (
+          <span className="category-filter-badge">
+            {filteredProducts.length} {filteredProducts.length === 1 ? "product" : "products"}
+          </span>
+        )}
       </div>
 
       {isAdmin && (
@@ -274,39 +325,53 @@ export const ProductsPage = () => {
             </tr>
           </thead>
           <tbody>
-            {products.map((product) => (
-              <tr key={product._id}>
-                <td>{product.name}</td>
-                <td>{product.category}</td>
-                {isAdmin && <td>{formatCurrency(product.purchasedPrice || 0)}</td>}
-                {isAdmin && <td>{formatCurrency(product.minSellingPrice || 0)}</td>}
-                <td>
-                  <StockBar
-                    current={product.quantity}
-                    initial={product.initialStock}
-                    threshold={product.lowStockThreshold}
-                    t={t}
-                  />
+            {filteredProducts.length === 0 ? (
+              <tr>
+                <td colSpan={isAdmin ? 7 : 4} style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+                  <div className="category-filter-empty">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}>
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <p>{t("products.noProductsInCategory") || "No products found in this category."}</p>
+                  </div>
                 </td>
-                <td>
-                  {product.quantity <= (product.lowStockThreshold ?? 10) ? (
-                    <span className="stock-status stock-status--danger">{t("products.lowStock")}</span>
-                  ) : (
-                    <span className="stock-status stock-status--healthy">{t("products.healthy")}</span>
-                  )}
-                </td>
-                {isAdmin ? (
-                  <td>
-                    <button className="btn secondary" onClick={() => onEdit(product)}>
-                      {t("common.edit")}
-                    </button>
-                    <button className="btn btn-danger" onClick={() => onDelete(product._id)} style={{ marginLeft: '0.4rem' }}>
-                      {t("common.delete")}
-                    </button>
-                  </td>
-                ) : null}
               </tr>
-            ))}
+            ) : (
+              filteredProducts.map((product) => (
+                <tr key={product._id}>
+                  <td>{product.name}</td>
+                  <td>{product.category}</td>
+                  {isAdmin && <td>{formatCurrency(product.purchasedPrice || 0)}</td>}
+                  {isAdmin && <td>{formatCurrency(product.minSellingPrice || 0)}</td>}
+                  <td>
+                    <StockBar
+                      current={product.quantity}
+                      initial={product.initialStock}
+                      threshold={product.lowStockThreshold}
+                      t={t}
+                    />
+                  </td>
+                  <td>
+                    {product.quantity <= (product.lowStockThreshold ?? 10) ? (
+                      <span className="stock-status stock-status--danger">{t("products.lowStock")}</span>
+                    ) : (
+                      <span className="stock-status stock-status--healthy">{t("products.healthy")}</span>
+                    )}
+                  </td>
+                  {isAdmin ? (
+                    <td>
+                      <button className="btn secondary" onClick={() => onEdit(product)}>
+                        {t("common.edit")}
+                      </button>
+                      <button className="btn btn-danger" onClick={() => onDelete(product._id)} style={{ marginLeft: '0.4rem' }}>
+                        {t("common.delete")}
+                      </button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

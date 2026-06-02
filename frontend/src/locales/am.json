@@ -15,7 +15,8 @@
     "updateProduct": "ምርት አዘምን",
     "edit": "አርትዕ",
     "delete": "ሰርዝ",
-    "searchProducts": "ምርቶችን ፈልግ..."
+    "searchProducts": "ምርቶችን ፈልግ...",
+    "clear": "አጽዳ"
   },
   "nav": {
     "dashboard": "ዳሽቦርድ",
@@ -122,7 +123,9 @@
     "categoryManagement": "የምድብ አስተዳደር",
     "newCategory": "አዲስ የምድብ ስም",
     "addedSuccess": "ምርት በትክክል ተጨምሯል",
-    "updatedSuccess": "ምርት በትክክል ተዘምኗል"
+    "updatedSuccess": "ምርት በትክክል ተዘምኗል",
+    "allCategories": "ሁሉም ምድቦች",
+    "noProductsInCategory": "በዚህ ምድብ ውስጥ ምንም ምርቶች አልተገኙም።"
   },
   "sales": {
     "allSalesTitle": "ሁሉም ሽያጮች",
