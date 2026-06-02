@@ -2741,7 +2741,7 @@ tbody tr:hover {
   position: absolute;
   right: 0;
   top: 48px;
-  width: 360px;
+  width: min(500px, 90vw);
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2749,6 +2749,18 @@ tbody tr:hover {
   z-index: 1000;
   overflow: hidden;
   animation: slide-down 0.2s ease-out;
+}
+
+@media (min-width: 768px) {
+  .notification-dropdown {
+    width: 550px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .notification-dropdown {
+    width: 650px;
+  }
 }
 
 .notification-header {
