@@ -2857,6 +2857,44 @@ tbody tr:hover {
   font-size: 0.85rem;
 }
 
+.notification-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.notification-type-badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.notification-title-line {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text);
+  margin-bottom: 0.1rem;
+}
+
+.notification-view-link {
+  font-size: 0.72rem;
+  color: var(--primary);
+  font-weight: 600;
+  margin-top: 0.2rem;
+  cursor: pointer;
+}
+
+.notification-view-link:hover {
+  text-decoration: underline;
+}
+
+
 /* Toast System */
 .toast-container {
   position: fixed;
@@ -2892,6 +2930,11 @@ tbody tr:hover {
 .toast.toast--rejected {
   border-left: 5px solid #ef4444;
 }
+
+.toast.toast--info {
+  border-left: 5px solid #6366f1;
+}
+
 
 .toast-content {
   flex: 1;

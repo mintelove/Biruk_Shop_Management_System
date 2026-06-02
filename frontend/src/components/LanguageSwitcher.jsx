@@ -13,8 +13,12 @@ export const LanguageSwitcher = () => {
   const [toasts, setToasts] = useState([]);
   const [selectedNotification, setSelectedNotification] = useState(null);
 
+  const isAdmin = user?.role === "admin";
+  const isSalesman = user?.role === "salesman";
+  const showNotifications = isAdmin || isSalesman;
+
   const fetchNotifications = async () => {
-    if (user?.role !== "salesman") return;
+    if (!showNotifications) return;
     try {
       const res = await api.get("/notifications");
       if (res.data && res.data.success) {
@@ -52,9 +56,12 @@ export const LanguageSwitcher = () => {
     }
   };
 
+  // Salesman: listen for approval/rejection notifications
   useSocket("stock:update", (payload) => {
     const userId = user?.id || user?._id;
-    if (payload && payload.type === "notification" && String(payload.salesman_id) === String(userId)) {
+
+    // Salesman notification (approval / rejection)
+    if (payload && payload.type === "notification" && isSalesman && String(payload.salesman_id) === String(userId)) {
       const newToast = {
         id: Date.now(),
         title: payload.status === "approved" ? "🎉 Request Approved" : "❌ Request Rejected",
@@ -62,14 +69,55 @@ export const LanguageSwitcher = () => {
         status: payload.status
       };
       setToasts(prev => [...prev, newToast]);
-
       setTimeout(() => {
         setToasts(prev => prev.filter(t => t.id !== newToast.id));
       }, 5000);
-
       fetchNotifications();
     }
+
+    // Admin notification (new request submitted by salesman)
+    if (payload && payload.type === "admin-notification" && isAdmin) {
+      const adminIds = payload.admin_ids || [];
+      if (adminIds.length === 0 || adminIds.includes(String(userId))) {
+        const newToast = {
+          id: Date.now(),
+          title: `📋 ${payload.title || "New Request"}`,
+          message: payload.message || "A salesman submitted a new request.",
+          status: "info"
+        };
+        setToasts(prev => [...prev, newToast]);
+        setTimeout(() => {
+          setToasts(prev => prev.filter(t => t.id !== newToast.id));
+        }, 6000);
+        fetchNotifications();
+      }
+    }
   });
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Helper to derive notification type label
+  const getTypeLabel = (notif) => {
+    const t = notif.type || "";
+    if (t.includes("price_change")) return "Price Change Request";
+    if (t.includes("return")) return "Return Request";
+    return "Notification";
+  };
+
+  // Helper to derive status badge for notification
+  const getStatusInfo = (notif) => {
+    const t = notif.type || "";
+    if (t.includes("submitted")) return { label: "Pending Review", color: "#f59e0b", bg: "#f59e0b22" };
+    if (t.includes("approved")) return { label: "Approved", color: "#10b981", bg: "#10b98122" };
+    if (t.includes("rejected")) return { label: "Rejected", color: "#ef4444", bg: "#ef444422" };
+    return { label: "Info", color: "#6366f1", bg: "#6366f122" };
+  };
+
+  // Short preview of notification message for dropdown
+  const getMessagePreview = (msg) => {
+    if (!msg) return "";
+    return msg.length > 120 ? msg.slice(0, 120) + "…" : msg;
+  };
 
   return (
     <div className="language-switcher">
@@ -81,23 +129,23 @@ export const LanguageSwitcher = () => {
         <option value="am">{t("common.amharic")}</option>
       </select>
 
-      {user && user.role === "salesman" && (
+      {showNotifications && (
         <>
           <span className="header-divider" />
           <div className="notification-bell-container">
             <button className="notification-bell-btn" onClick={() => setShowDropdown(!showDropdown)} style={{ padding: 0, border: "none", background: "none", fontSize: "1.2rem", cursor: "pointer", position: "relative" }}>
               🔔
-              {notifications.filter(n => !n.read).length > 0 && (
-                <span className="notification-badge" style={{ position: "absolute", top: "-5px", right: "-5px", background: "#ef4444", color: "#fff", fontSize: "0.65rem", padding: "1px 4px", borderRadius: "50%" }}>
-                  {notifications.filter(n => !n.read).length}
+              {unreadCount > 0 && (
+                <span className="notification-badge" style={{ position: "absolute", top: "-5px", right: "-5px", background: "#ef4444", color: "#fff", fontSize: "0.65rem", padding: "1px 4px", borderRadius: "50%", minWidth: "16px", textAlign: "center" }}>
+                  {unreadCount}
                 </span>
               )}
             </button>
             {showDropdown && (
               <div className="notification-dropdown">
                 <div className="notification-header">
-                  <h4>Notifications</h4>
-                  {notifications.filter(n => !n.read).length > 0 && (
+                  <h4>{isAdmin ? "Admin Notifications" : "Notifications"}</h4>
+                  {unreadCount > 0 && (
                     <button className="notification-clear-all" onClick={markAllAsRead}>
                       Mark all as read
                     </button>
@@ -107,12 +155,22 @@ export const LanguageSwitcher = () => {
                   {notifications.length === 0 ? (
                     <div className="notification-empty">No notifications yet</div>
                   ) : (
-                    notifications.map(n => (
-                      <div key={n._id} className={`notification-item ${!n.read ? "unread" : ""}`} onClick={() => { markAsRead(n._id); setSelectedNotification(n); setShowDropdown(false); }}>
-                        <div className="notification-message">{n.message}</div>
-                        <div className="notification-time">{new Date(n.createdAt).toLocaleTimeString()}</div>
-                      </div>
-                    ))
+                    notifications.map(n => {
+                      const statusInfo = getStatusInfo(n);
+                      return (
+                        <div key={n._id} className={`notification-item ${!n.read ? "unread" : ""}`} onClick={() => { markAsRead(n._id); setSelectedNotification(n); setShowDropdown(false); }}>
+                          <div className="notification-item-header">
+                            <span className="notification-type-badge" style={{ background: statusInfo.bg, color: statusInfo.color }}>
+                              {getTypeLabel(n)}
+                            </span>
+                            <span className="notification-time">{new Date(n.createdAt).toLocaleTimeString()}</span>
+                          </div>
+                          {n.title && <div className="notification-title-line">{n.title}</div>}
+                          <div className="notification-message">{getMessagePreview(n.message)}</div>
+                          <div className="notification-view-link">View Details →</div>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -149,7 +207,7 @@ export const LanguageSwitcher = () => {
       {selectedNotification && (
         <div className="notification-detail-modal" onClick={() => setSelectedNotification(null)}>
           <div className="notification-detail-card" onClick={e => e.stopPropagation()}>
-            <h3>🔔 Notification Details</h3>
+            <h3>🔔 {isAdmin ? "Admin Notification Details" : "Notification Details"}</h3>
             
             <div className="notification-detail-body">
               {selectedNotification.message}
@@ -158,22 +216,27 @@ export const LanguageSwitcher = () => {
             <div className="notification-detail-meta">
               <div>
                 <strong>Status:</strong>{" "}
-                <span style={{
-                  display: "inline-block",
-                  padding: "0.15rem 0.5rem",
-                  borderRadius: "6px",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  background: selectedNotification.type?.includes("approved") ? "#10b98122" : "#ef444422",
-                  color: selectedNotification.type?.includes("approved") ? "#10b981" : "#ef4444",
-                  textTransform: "uppercase"
-                }}>
-                  {selectedNotification.type?.includes("approved") ? "Approved" : "Rejected"}
-                </span>
+                {(() => {
+                  const si = getStatusInfo(selectedNotification);
+                  return (
+                    <span style={{
+                      display: "inline-block",
+                      padding: "0.15rem 0.5rem",
+                      borderRadius: "6px",
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      background: si.bg,
+                      color: si.color,
+                      textTransform: "uppercase"
+                    }}>
+                      {si.label}
+                    </span>
+                  );
+                })()}
               </div>
               <div>
                 <strong>Type:</strong>{" "}
-                {selectedNotification.type?.includes("price_change") ? "Price Change Request" : "Return Request"}
+                {getTypeLabel(selectedNotification)}
               </div>
               <div>
                 <strong>Transaction ID:</strong>{" "}
@@ -181,17 +244,25 @@ export const LanguageSwitcher = () => {
                   {selectedNotification.transaction_id?._id || selectedNotification.transaction_id || "N/A"}
                 </code>
               </div>
-              <div>
-                <strong>Admin Name:</strong>{" "}
-                {selectedNotification.transaction_id?.adminUsername || selectedNotification.transaction_id?.returnedBy || "Administrator"}
-              </div>
+              {isAdmin && (
+                <div>
+                  <strong>Submitted By:</strong>{" "}
+                  {selectedNotification.transaction_id?.salesman_name || "Salesman"}
+                </div>
+              )}
+              {isSalesman && (
+                <div>
+                  <strong>Admin Name:</strong>{" "}
+                  {selectedNotification.transaction_id?.adminUsername || selectedNotification.transaction_id?.returnedBy || "Administrator"}
+                </div>
+              )}
               <div>
                 <strong>Date:</strong>{" "}
                 {new Date(selectedNotification.createdAt).toLocaleString()}
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1.2rem" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1.2rem", gap: "0.5rem" }}>
               <button className="btn primary" onClick={() => setSelectedNotification(null)}>
                 Close
               </button>

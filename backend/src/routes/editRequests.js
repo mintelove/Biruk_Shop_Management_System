@@ -4,6 +4,7 @@ import { ReturnRequest } from "../models/ReturnRequest.js";
 import { Sale } from "../models/Sale.js";
 import { Product } from "../models/Product.js";
 import { Notification } from "../models/Notification.js";
+import { User } from "../models/User.js";
 import { protect, authorize } from "../middleware/auth.js";
 import { emitStockUpdate } from "../utils/socket.js";
 import { getRecordCurrency, toAppCurrency } from "../utils/currency.js";
@@ -70,6 +71,27 @@ router.post("/", protect, authorize("salesman", "admin"), async (req, res, next)
         status: "pending"
       });
 
+      // Create Admin Notifications
+      const admins = await User.find({ role: "admin" });
+      for (const admin of admins) {
+        await Notification.create({
+          user_id: admin._id,
+          role: "admin",
+          title: "Return Request Submitted",
+          message: `Return request submitted by ${req.user.name || req.user.email} for product "${sale.product_name}". Transaction ID: ${sale._id}. Message: "${reason.trim()}"`,
+          type: "return_submitted",
+          transaction_id: sale._id,
+          request_id: retReq._id
+        });
+      }
+
+      emitStockUpdate({
+        type: "admin-notification",
+        admin_ids: admins.map(a => String(a._id)),
+        title: "Return Request Submitted",
+        message: `Return request submitted by ${req.user.name || req.user.email} for product "${sale.product_name}".`
+      });
+
       sale.status = "pending_return";
       sale.operationUsed = true; // Mark operation used
       await sale.save();
@@ -132,6 +154,27 @@ router.post("/", protect, authorize("salesman", "admin"), async (req, res, next)
         reason: reason.trim(),
         salesmanId: req.user._id,
         status: "pending"
+      });
+
+      // Create Admin Notifications
+      const admins = await User.find({ role: "admin" });
+      for (const admin of admins) {
+        await Notification.create({
+          user_id: admin._id,
+          role: "admin",
+          title: "Price Change Request Submitted",
+          message: `Price change request submitted by ${req.user.name || req.user.email} for product "${sale.product_name}". Requested Price: ${Number(newPrice).toFixed(2)} ETB. Transaction ID: ${sale._id}. Message: "${reason.trim()}"`,
+          type: "price_change_submitted",
+          transaction_id: sale._id,
+          request_id: pcReq._id
+        });
+      }
+
+      emitStockUpdate({
+        type: "admin-notification",
+        admin_ids: admins.map(a => String(a._id)),
+        title: "Price Change Request Submitted",
+        message: `Price change request submitted by ${req.user.name || req.user.email} for product "${sale.product_name}".`
       });
 
       sale.operationUsed = true;
