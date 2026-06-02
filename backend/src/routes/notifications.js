@@ -8,6 +8,7 @@ const router = express.Router();
 router.get("/", protect, authorize("salesman"), async (req, res, next) => {
   try {
     const notifications = await Notification.find({ salesman_id: req.user._id })
+      .populate("transaction_id")
       .sort({ createdAt: -1 });
 
     res.json({ success: true, notifications });
@@ -21,7 +22,7 @@ router.patch("/:id/read", protect, authorize("salesman"), async (req, res, next)
   try {
     const notification = await Notification.findOneAndUpdate(
       { _id: req.params.id, salesman_id: req.user._id },
-      { read: true },
+      { isRead: true },
       { new: true }
     );
 
