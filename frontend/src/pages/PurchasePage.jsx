@@ -13,28 +13,7 @@ const DownloadIcon = () => (
 
 const ONE_HOUR = 60 * 60 * 1000;
 
-const statusBadge = (status) => {
-  const colors = {
-    active: "#22c55e",
-    returned: "#f59e0b",
-    reversed: "#ef4444",
-    pending_return: "#eab308",
-    return_rejected: "#ef4444"
-  };
-  const labels = {
-    active: "active",
-    returned: "returned",
-    reversed: "reversed",
-    pending_return: "pending return",
-    return_rejected: "return rejected"
-  };
-  return (
-    <span style={{
-      display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
-      background: `${colors[status] || "#94a3b8"}22`, color: colors[status] || "#94a3b8", textTransform: "uppercase"
-    }}>{labels[status] || status}</span>
-  );
-};
+// statusBadge was replaced by inline renderStatusBadge to support rich status details.
 
 const adminPriceBadge = (price) => (
   <div style={{
@@ -132,13 +111,96 @@ export const PurchasePage = () => {
     return sorted[0];
   };
 
-  const filteredTransactions = useMemo(() => {
-    if (!search.trim()) return data.transactions;
+  const activeTransactions = useMemo(() => {
+    let txs = data.transactions;
+    // For salesman, hide returned transactions from main table
+    if (!isAdmin) {
+      txs = txs.filter(tx => tx.status !== "returned");
+    }
+    if (!search.trim()) return txs;
     const q = search.toLowerCase().trim();
-    return data.transactions.filter((tx) =>
+    return txs.filter((tx) =>
+      (tx.product_name || "").toLowerCase().includes(q) || (tx.salesman || "").toLowerCase().includes(q)
+    );
+  }, [data.transactions, search, isAdmin]);
+
+  const returnedTransactions = useMemo(() => {
+    let txs = data.transactions.filter(tx => tx.status === "returned");
+    if (!search.trim()) return txs;
+    const q = search.toLowerCase().trim();
+    return txs.filter((tx) =>
       (tx.product_name || "").toLowerCase().includes(q) || (tx.salesman || "").toLowerCase().includes(q)
     );
   }, [data.transactions, search]);
+
+  const renderStatusBadge = (tx) => {
+    const req = getRequestStatus(tx._id);
+    
+    let label = "Completed";
+    let color = "#22c55e"; // Green
+
+    if (tx.status === "returned") {
+      label = "✅ Returned By Admin";
+      color = "#3b82f6"; // Blue
+    } else if (tx.status === "pending_return") {
+      label = "Pending Return Approval";
+      color = "#eab308"; // Yellow
+    } else if (tx.status === "return_rejected") {
+      label = "Return Rejected";
+      color = "#ef4444"; // Red
+    } else if (req) {
+      if (req.type === "price_change") {
+        if (req.status === "pending") {
+          label = "Pending Admin Approval";
+          color = "#a855f7"; // Purple
+        } else if (req.status === "rejected") {
+          label = "Rejected By Admin";
+          color = "#ef4444"; // Red
+        } else if (req.status === "approved" || tx.edited) {
+          label = "✅ Approved By Admin";
+          color = "#10b981"; // Emerald green
+        }
+      }
+    } else if (tx.edited) {
+      label = "✅ Approved By Admin";
+      color = "#10b981"; // Emerald green
+    }
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+        <span style={{
+          display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
+          background: `${color}22`, color: color, textTransform: "uppercase", width: "max-content", whiteSpace: "nowrap"
+        }}>
+          {label}
+        </span>
+        {label === "✅ Approved By Admin" && tx.adminUsername && (
+          <div style={{ fontSize: "0.74rem", color: "var(--muted)", marginTop: "0.2rem", lineHeight: "1.3" }}>
+            <div>Approved By: <strong>{tx.adminUsername}</strong></div>
+            <div>Date: <strong>{tx.adminResponseDate ? new Date(tx.adminResponseDate).toISOString().slice(0, 10) : new Date(tx.date).toISOString().slice(0, 10)}</strong></div>
+          </div>
+        )}
+        {label === "✅ Returned By Admin" && tx.adminUsername && (
+          <div style={{ fontSize: "0.74rem", color: "var(--muted)", marginTop: "0.2rem", lineHeight: "1.3" }}>
+            <div>Processed By: <strong>{tx.adminUsername}</strong></div>
+            <div>Returned On: <strong>{tx.adminResponseDate ? new Date(tx.adminResponseDate).toISOString().slice(0, 10) : new Date(tx.date).toISOString().slice(0, 10)}</strong></div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const handleAdminDirectReturn = async (tx) => {
+    const confirmReturn = window.confirm(`Are you sure you want to return transaction for product "${tx.product_name}"? This will restore quantity back to inventory and reverse sale/profit metrics immediately.`);
+    if (!confirmReturn) return;
+    try {
+      await api.post(`/sales/${tx._id}/return`);
+      fetchData();
+      if (isAdmin) fetchEditRequests();
+    } catch (err) {
+      alert(err.response?.data?.message || "Direct return failed.");
+    }
+  };
 
   const onExport = (format) => {
     const params = new URLSearchParams();
@@ -216,8 +278,8 @@ export const PurchasePage = () => {
       return;
     }
     
-    // Enforce minSellingPrice validation
-    if (editTx.minSellingPrice && newPriceVal < editTx.minSellingPrice) {
+    // Enforce minSellingPrice validation (for salesmen only)
+    if (!isAdmin && editTx.minSellingPrice && newPriceVal < editTx.minSellingPrice) {
       setEditError("Requested price is below the minimum selling price.");
       return;
     }
@@ -289,40 +351,31 @@ export const PurchasePage = () => {
   const renderActions = (tx) => {
     if (isAdmin) {
       const pendingReq = editRequests.find(r => r.status === "pending" && String(r.transaction_id?._id || r.transaction_id) === String(tx._id));
-      if (pendingReq) {
-        if (pendingReq.type === "price_change") {
-          return (
-            <div style={{ display: "flex", gap: "0.3rem" }}>
-              <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#22c55e" }}
-                onClick={() => onReview(pendingReq._id, "approved")}>
-                Approve
-              </button>
-              <button className="btn btn-danger" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
-                onClick={() => setRejectingReq(pendingReq)}>
-                Reject
-              </button>
-            </div>
-          );
-        } else {
-          return (
-            <div style={{ display: "flex", gap: "0.3rem" }}>
-              <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#22c55e" }}
-                onClick={() => onReview(pendingReq._id, "approved")}>
-                Approve Return
-              </button>
-              <button className="btn btn-danger" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
-                onClick={() => setRejectingReq(pendingReq)}>
-                Reject Return
-              </button>
-            </div>
-          );
-        }
-      }
       return (
-        <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
-          onClick={() => { setEditTx(tx); setEditForm({ sellingPrice: tx.sellingPrice }); setEditError(""); }}>
-          ✏️ Edit
-        </button>
+        <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+          {pendingReq && (
+            <div style={{ display: "flex", gap: "0.3rem", marginRight: "0.4rem", borderRight: "1px solid rgba(0,0,0,0.1)", paddingRight: "0.4rem" }}>
+              <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#22c55e" }}
+                onClick={() => onReview(pendingReq._id, "approved")}>
+                Approve {pendingReq.type === "price_change" ? "" : "Return"}
+              </button>
+              <button className="btn btn-danger" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
+                onClick={() => setRejectingReq(pendingReq)}>
+                Reject {pendingReq.type === "price_change" ? "" : "Return"}
+              </button>
+            </div>
+          )}
+          <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
+            onClick={() => { setEditTx(tx); setEditForm({ sellingPrice: tx.sellingPrice }); setEditError(""); }}>
+            ✏️ Edit Price
+          </button>
+          {tx.status !== "returned" && (
+            <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#e11d48" }}
+              onClick={() => handleAdminDirectReturn(tx)}>
+              ↩️ Return
+            </button>
+          )}
+        </div>
       );
     }
 
@@ -531,10 +584,10 @@ export const PurchasePage = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredTransactions.length === 0 ? (
+            {activeTransactions.length === 0 ? (
               <tr><td colSpan={9} className="no-results">{t("sales.noResults")}</td></tr>
             ) : (
-              filteredTransactions.map((tx) => (
+              activeTransactions.map((tx) => (
                 <tr key={tx._id} style={tx.status !== "active" && tx.status !== "pending_return" && tx.status !== "return_rejected" ? { opacity: 0.55 } : undefined}>
                   <td>{new Date(tx.date).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
                   <td>{tx.product_name}</td>
@@ -546,7 +599,7 @@ export const PurchasePage = () => {
                   </td>
                   <td>{tx.salesman}</td>
                   <td>
-                    {statusBadge(tx.status)}
+                    {renderStatusBadge(tx)}
                     {tx.adminMessage && (
                       <div style={{ marginTop: "0.2rem", fontSize: "0.72rem", color: "#dc2626", fontWeight: 600 }}>
                         ⚠️ {tx.adminMessage}
@@ -570,6 +623,49 @@ export const PurchasePage = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Salesman: Returned Transactions Collapsible Section */}
+      {!isAdmin && returnedTransactions.length > 0 && (
+        <div className="card profit-table-card" style={{ borderLeft: "4px solid #3b82f6" }}>
+          <details>
+            <summary style={{ fontSize: "1.1rem", fontWeight: 700, cursor: "pointer", outline: "none", padding: "0.2rem 0", userSelect: "none" }}>
+              ↩️ Returned Transactions ({returnedTransactions.length})
+            </summary>
+            <div style={{ marginTop: "1rem" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("sales.date")}</th>
+                    <th>{t("sales.product")}</th>
+                    <th>{t("sales.qty")}</th>
+                    <th>{t("sales.unitPrice")}</th>
+                    <th>Cost Price</th>
+                    <th>{t("sales.totalProfit")}</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returnedTransactions.map((tx) => (
+                    <tr key={tx._id} style={{ opacity: 0.7 }}>
+                      <td>{new Date(tx.date).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
+                      <td>{tx.product_name}</td>
+                      <td>{tx.quantity}</td>
+                      <td>{formatCurrency(tx.sellingPrice)}</td>
+                      <td>{formatCurrency(tx.purchasedPrice)}</td>
+                      <td style={{ fontWeight: 600, color: "#94a3b8" }}>
+                        {formatCurrency(tx.profit)}
+                      </td>
+                      <td>
+                        {renderStatusBadge(tx)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      )}
 
       {/* Salesman: My Request History */}
       {!isAdmin && myRequests.length > 0 && (
@@ -635,12 +731,20 @@ export const PurchasePage = () => {
         <div className="modal-backdrop" onClick={() => setEditTx(null)}>
           <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>✏️ {isAdmin ? "Admin Edit Price" : "Edit Transaction Price"}</h3>
-            <p style={{ margin: "0.4rem 0", color: "var(--muted)" }}>{editTx.product_name}</p>
-            {editTx.minSellingPrice && adminPriceBadge(editTx.minSellingPrice)}
+            <div style={{
+              margin: "0.6rem 0", padding: "0.7rem", borderRadius: "10px",
+              background: "var(--card-bg, rgba(100,116,139,0.06))",
+              border: "1px solid var(--input-border, rgba(100,116,139,0.15))",
+              fontSize: "0.88rem"
+            }}>
+              <div>Product Name: <strong>{editTx.product_name}</strong></div>
+              <div style={{ marginTop: "0.3rem" }}>Current Price: <strong>{formatCurrency(editTx.sellingPrice)}</strong></div>
+            </div>
+            {!isAdmin && editTx.minSellingPrice && adminPriceBadge(editTx.minSellingPrice)}
             {editError && <p className="error" style={{ margin: "0.4rem 0" }}>{editError}</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
               <div>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>Selling Price</label>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>New Price</label>
                 <input type="number" min="0.01" step="0.01" value={editForm.sellingPrice}
                   onChange={(e) => setEditForm({ ...editForm, sellingPrice: e.target.value })} style={{ width: "100%", padding: "0.55rem" }} />
               </div>

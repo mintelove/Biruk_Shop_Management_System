@@ -312,6 +312,8 @@ router.patch("/:id", protect, authorize("admin"), async (req, res, next) => {
           }
           sale.status = "returned";
           sale.adminMessage = "Customer refund approved and processed.";
+          sale.adminUsername = req.user.name || req.user.email || "Admin";
+          sale.adminResponseDate = new Date();
           await sale.save();
 
           emitStockUpdate({ type: "sale-returned", saleId: sale._id, productId: sale.product_id });
@@ -330,6 +332,9 @@ router.patch("/:id", protect, authorize("admin"), async (req, res, next) => {
           sale.unit_price = requestDoc.requestedPrice;
           sale.total_price = Number((sale.unit_price * sale.quantity).toFixed(2));
           sale.adminMessage = "";
+          sale.edited = true;
+          sale.adminUsername = req.user.name || req.user.email || "Admin";
+          sale.adminResponseDate = new Date();
           await sale.save();
 
           emitStockUpdate({ type: "sale-edited", saleId: sale._id });

@@ -14,7 +14,9 @@ const saleSchema = new mongoose.Schema(
     priceEditedDirectly: { type: Boolean, default: false },
     edited: { type: Boolean, default: false },
     status: { type: String, enum: ["active", "returned", "reversed", "pending_return", "return_rejected"], default: "active" },
-    adminMessage: { type: String, default: "" }
+    adminMessage: { type: String, default: "" },
+    adminUsername: { type: String, default: "" },
+    adminResponseDate: { type: Date }
   },
   { timestamps: true }
 );

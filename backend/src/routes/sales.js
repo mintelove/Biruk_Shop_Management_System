@@ -347,8 +347,11 @@ async function buildProfitData(query, user) {
       date: s.createdAt,
       operationUsed: !!s.operationUsed,
       priceEditedDirectly: !!s.priceEditedDirectly,
+      edited: !!s.edited,
       status: txStatus,
       adminMessage: s.adminMessage || "",
+      adminUsername: s.adminUsername || "",
+      adminResponseDate: s.adminResponseDate || null,
       minSellingPrice
     };
   });
@@ -664,6 +667,9 @@ router.post("/:id/return", protect, authorize("admin"), async (req, res, next) =
 
     sale.status = "returned";
     sale.operationUsed = true;
+    sale.adminUsername = req.user.name || req.user.email || "Admin";
+    sale.adminResponseDate = new Date();
+    sale.adminMessage = "Customer refund approved and processed.";
     await sale.save();
 
     emitStockUpdate({ type: "sale-returned", saleId: sale._id, productId: sale.product_id });
@@ -771,11 +777,16 @@ router.put("/:id", protect, authorize("salesman", "admin"), async (req, res, nex
 
     sale.total_price = Number((sale.unit_price * sale.quantity).toFixed(2));
 
-    // Mark as directly edited for salesman (one-time edit rule)
+    // Mark as directly edited for salesman (one-time edit rule), or set admin approval details for admin
     if (!isAdmin) {
       sale.priceEditedDirectly = true;
       sale.edited = true;
       sale.operationUsed = true;
+    } else {
+      sale.edited = true;
+      sale.adminUsername = req.user.name || req.user.email || "Admin";
+      sale.adminResponseDate = new Date();
+      sale.adminMessage = ""; // Clear any messages
     }
 
     await sale.save();
