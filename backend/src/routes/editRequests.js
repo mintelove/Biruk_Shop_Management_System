@@ -182,10 +182,12 @@ router.get("/", protect, authorize("admin"), async (req, res, next) => {
       salesman_id: r.salesmanId,
       type: "price_change",
       reason: r.reason,
-      newPrice: r.requestedPrice,
+      newPrice: r.newPrice || r.requestedPrice,
       oldPrice: r.oldPrice,
       status: r.status,
       admin_note: r.adminResponse,
+      adminUsername: r.adminUsername,
+      adminResponseDate: r.adminResponseDate,
       createdAt: r.createdAt
     }));
 
@@ -196,9 +198,11 @@ router.get("/", protect, authorize("admin"), async (req, res, next) => {
       salesman_id: r.salesmanId,
       type: "return",
       reason: r.reason,
-      refundAmount: r.transactionId?.total_price || 0,
+      refundAmount: r.transactionId?.total_price || r.refundAmount || 0,
       status: r.status,
       admin_note: r.adminResponse,
+      adminUsername: r.adminUsername,
+      adminResponseDate: r.adminResponseDate,
       createdAt: r.createdAt
     }));
 
@@ -231,10 +235,12 @@ router.get("/mine", protect, authorize("salesman", "admin"), async (req, res, ne
       salesman_id: r.salesmanId,
       type: "price_change",
       reason: r.reason,
-      newPrice: r.requestedPrice,
+      newPrice: r.newPrice || r.requestedPrice,
       oldPrice: r.oldPrice,
       status: r.status,
       admin_note: r.adminResponse,
+      adminUsername: r.adminUsername,
+      adminResponseDate: r.adminResponseDate,
       createdAt: r.createdAt
     }));
 
@@ -244,9 +250,11 @@ router.get("/mine", protect, authorize("salesman", "admin"), async (req, res, ne
       salesman_id: r.salesmanId,
       type: "return",
       reason: r.reason,
-      refundAmount: r.transactionId?.total_price || 0,
+      refundAmount: r.transactionId?.total_price || r.refundAmount || 0,
       status: r.status,
       admin_note: r.adminResponse,
+      adminUsername: r.adminUsername,
+      adminResponseDate: r.adminResponseDate,
       createdAt: r.createdAt
     }));
 
@@ -377,6 +385,8 @@ router.patch("/:id", protect, authorize("admin"), async (req, res, next) => {
     // Save request doc updates
     requestDoc.status = status === "approved" ? "approved" : "rejected";
     requestDoc.adminResponse = admin_note || "";
+    requestDoc.adminUsername = req.user.name || req.user.email || "Admin";
+    requestDoc.adminResponseDate = new Date();
     await requestDoc.save();
 
     emitStockUpdate({

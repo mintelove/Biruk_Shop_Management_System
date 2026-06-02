@@ -125,7 +125,8 @@ export const PurchasePage = () => {
   });
 
   const getRequestStatus = (txId) => {
-    const reqs = myRequests.filter(r => String(r.transaction_id?._id || r.transaction_id) === String(txId));
+    const list = isAdmin ? editRequests : myRequests;
+    const reqs = list.filter(r => String(r.transaction_id?._id || r.transaction_id) === String(txId));
     if (reqs.length === 0) return null;
     const sorted = [...reqs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     return sorted[0];
@@ -287,6 +288,36 @@ export const PurchasePage = () => {
 
   const renderActions = (tx) => {
     if (isAdmin) {
+      const pendingReq = editRequests.find(r => r.status === "pending" && String(r.transaction_id?._id || r.transaction_id) === String(tx._id));
+      if (pendingReq) {
+        if (pendingReq.type === "price_change") {
+          return (
+            <div style={{ display: "flex", gap: "0.3rem" }}>
+              <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#22c55e" }}
+                onClick={() => onReview(pendingReq._id, "approved")}>
+                Approve
+              </button>
+              <button className="btn btn-danger" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
+                onClick={() => setRejectingReq(pendingReq)}>
+                Reject
+              </button>
+            </div>
+          );
+        } else {
+          return (
+            <div style={{ display: "flex", gap: "0.3rem" }}>
+              <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#22c55e" }}
+                onClick={() => onReview(pendingReq._id, "approved")}>
+                Approve Return
+              </button>
+              <button className="btn btn-danger" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
+                onClick={() => setRejectingReq(pendingReq)}>
+                Reject Return
+              </button>
+            </div>
+          );
+        }
+      }
       return (
         <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
           onClick={() => { setEditTx(tx); setEditForm({ sellingPrice: tx.sellingPrice }); setEditError(""); }}>
@@ -343,6 +374,60 @@ export const PurchasePage = () => {
     <div className="stack">
       <h2>{t("nav.purchases")}</h2>
 
+      {/* Admin pending requests notification panel */}
+      {isAdmin && pendingRequests.length > 0 && (
+        <div className="card" style={{ border: "1px solid #2563eb", background: "rgba(37,99,235,0.02)" }}>
+          <h3 style={{ margin: 0, paddingBottom: "0.8rem", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            🔔 Pending Transaction Requests ({pendingRequests.length})
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", marginTop: "1rem" }}>
+            {pendingRequests.map((r) => (
+              <div key={r._id} style={{ padding: "1rem", borderRadius: "10px", border: "1px solid rgba(0,0,0,0.05)", background: "var(--card-bg)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.6rem" }}>
+                  <div>
+                    <strong style={{ fontSize: "0.95rem" }}>Request #{String(r._id).slice(-8).toUpperCase()}</strong>
+                    <span style={{
+                      marginLeft: "0.8rem", display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
+                      background: r.type === "price_change" ? "rgba(139,92,246,0.15)" : "rgba(225,29,72,0.15)",
+                      color: r.type === "price_change" ? "#8b5cf6" : "#e11d48", textTransform: "uppercase"
+                    }}>{r.type === "price_change" ? "Price Change" : "Return"}</span>
+                  </div>
+                  <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                    {new Date(r.createdAt).toLocaleString(language === "am" ? "am-ET" : "en-US")}
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.4rem 1rem", fontSize: "0.86rem", marginBottom: "0.6rem" }}>
+                  <div><span style={{ color: "var(--muted)" }}>Salesman:</span> <strong>{r.salesman_id?.name || "N/A"}</strong></div>
+                  <div><span style={{ color: "var(--muted)" }}>Product:</span> <strong>{r.transaction_id?.product_name || "N/A"}</strong></div>
+                  {r.type === "price_change" ? (
+                    <>
+                      <div><span style={{ color: "var(--muted)" }}>Current Price:</span> <strong>Br {Number(r.transaction_id?.unit_price || r.oldPrice || 0).toFixed(2)}</strong></div>
+                      <div><span style={{ color: "var(--muted)" }}>Requested Price:</span> <strong style={{ color: "#2563eb" }}>Br {Number(r.newPrice || 0).toFixed(2)}</strong></div>
+                    </>
+                  ) : (
+                    <div><span style={{ color: "var(--muted)" }}>Refund Amount:</span> <strong style={{ color: "#e11d48" }}>Br {Number(r.transaction_id?.total_price || r.refundAmount || 0).toFixed(2)}</strong></div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: "0.85rem", padding: "0.5rem 0.8rem", borderRadius: "6px", background: "rgba(100,116,139,0.06)", borderLeft: "3px solid #64748b", fontStyle: "italic", marginBottom: "0.8rem" }}>
+                  💬 Message: "{r.reason}"
+                </div>
+
+                <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+                  <button className="btn" style={{ padding: "0.3rem 0.8rem", fontSize: "0.8rem", background: "#22c55e" }} onClick={() => onReview(r._id, "approved")}>
+                    {r.type === "price_change" ? "Approve" : "Approve Return"}
+                  </button>
+                  <button className="btn btn-danger" style={{ padding: "0.3rem 0.8rem", fontSize: "0.8rem" }} onClick={() => setRejectingReq(r)}>
+                    {r.type === "price_change" ? "Reject" : "Reject Return"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Date Filters + Export */}
       <div className="card csv-export-bar" style={{ flexWrap: "wrap", gap: "1rem" }}>
         <div className="csv-export-group">
@@ -394,72 +479,7 @@ export const PurchasePage = () => {
         </div>
       </div>
 
-      {/* Admin pending requests queue with TABS */}
-      {isAdmin && pendingRequests.length > 0 && (
-        <div className="card profit-table-card">
-          <h3 style={{ marginBottom: "0.8rem" }}>📋 Sales Approval Worklist ({pendingRequests.length} Pending)</h3>
-          
-          <div className="admin-tabs-nav">
-            <button className={`admin-tab-btn ${activeTab === "price_change" ? "active" : ""}`} onClick={() => setActiveTab("price_change")}>
-              💲 Price Change ({priceChangeRequests.length})
-            </button>
-            <button className={`admin-tab-btn ${activeTab === "return" ? "active" : ""}`} onClick={() => setActiveTab("return")}>
-              ↩️ Return Requests ({returnRequests.length})
-            </button>
-          </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>{t("sales.salesman")}</th>
-                <th>{t("sales.product")}</th>
-                {activeTab === "return" && <th>{t("sales.qty")}</th>}
-                <th>Original Price</th>
-                <th>{activeTab === "price_change" ? "Requested Price" : "Refund Amount"}</th>
-                <th>{t("sales.reason")}</th>
-                <th>Requested</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(activeTab === "price_change" ? priceChangeRequests : returnRequests).length === 0 ? (
-                <tr>
-                  <td colSpan={activeTab === "return" ? 8 : 7} style={{ textAlign: "center", padding: "2rem", color: "var(--muted)" }}>
-                    No pending {activeTab === "price_change" ? "price change" : "return"} requests in queue.
-                  </td>
-                </tr>
-              ) : (
-                (activeTab === "price_change" ? priceChangeRequests : returnRequests).map((r) => (
-                  <tr key={r._id}>
-                    <td>{r.salesman_id?.name || "N/A"}</td>
-                    <td>{r.transaction_id?.product_name || "N/A"}</td>
-                    {activeTab === "return" && <td>{r.transaction_id?.quantity || "—"}</td>}
-                    <td>{formatCurrency(r.transaction_id?.unit_price || 0)}</td>
-                    <td>
-                      {r.type === "price_change" 
-                        ? formatCurrency(r.newPrice || 0) 
-                        : formatCurrency(r.transaction_id?.total_price || 0)
-                      }
-                    </td>
-                    <td>
-                      <span style={{ fontStyle: "italic" }}>"{r.reason}"</span>
-                    </td>
-                    <td>{new Date(r.createdAt).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
-                    <td style={{ display: "flex", gap: "0.3rem" }}>
-                      <button className="btn" style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem", background: "#22c55e" }} onClick={() => onReview(r._id, "approved")}>
-                        {t("sales.approve")}
-                      </button>
-                      <button className="btn btn-danger" style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }} onClick={() => setRejectingReq(r)}>
-                        {t("sales.reject")}
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {/* Profit Per Product */}
       <div className="card profit-table-card">
@@ -532,6 +552,14 @@ export const PurchasePage = () => {
                         ⚠️ {tx.adminMessage}
                       </div>
                     )}
+                    {(() => {
+                      const r = getRequestStatus(tx._id);
+                      return r && r.reason ? (
+                        <div style={{ marginTop: "0.25rem", fontSize: "0.74rem", color: "var(--muted)", fontStyle: "italic" }}>
+                          💬 Msg: "{r.reason}"
+                        </div>
+                      ) : null;
+                    })()}
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     {renderActions(tx)}
@@ -683,6 +711,11 @@ export const PurchasePage = () => {
             <p style={{ margin: "0.4rem 0", color: "var(--muted)" }}>
               Rejecting {rejectingReq.type === "price_change" ? "Price Change" : "Return"} request for "{rejectingReq.transaction_id?.product_name || "item"}".
             </p>
+            {rejectingReq.reason && (
+              <div style={{ margin: "0.5rem 0", padding: "0.6rem 0.8rem", borderRadius: "6px", background: "rgba(100,116,139,0.06)", borderLeft: "3px solid #ef4444", fontSize: "0.85rem", fontStyle: "italic" }}>
+                💬 Salesman Reason: "{rejectingReq.reason}"
+              </div>
+            )}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
               <div>
                 <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>Rejection Reason (Salesman will see this)</label>

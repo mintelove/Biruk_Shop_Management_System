@@ -6,7 +6,9 @@ const returnRequestSchema = new mongoose.Schema(
     reason: { type: String, required: true },
     salesmanId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
-    adminResponse: { type: String, default: "" }
+    adminResponse: { type: String, default: "" },
+    adminUsername: { type: String, default: "" },
+    adminResponseDate: { type: Date }
   },
   { timestamps: true, collection: "return_requests" }
 );
