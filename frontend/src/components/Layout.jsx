@@ -54,7 +54,8 @@ export const Layout = () => {
   };
 
   useSocket("stock:update", (payload) => {
-    if (payload && payload.type === "notification" && String(payload.salesman_id) === String(user?._id)) {
+    const userId = user?.id || user?._id;
+    if (payload && payload.type === "notification" && String(payload.salesman_id) === String(userId)) {
       const newToast = {
         id: Date.now(),
         title: payload.status === "approved" ? "🎉 Request Approved" : "❌ Request Rejected",

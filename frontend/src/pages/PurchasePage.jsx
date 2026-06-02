@@ -165,7 +165,8 @@ export const PurchasePage = () => {
   const canEditPrice = (tx) => {
     if (tx.status !== "active" && tx.status !== "return_rejected") return false;
     if (user?.role !== "salesman") return false;
-    const isOwner = String(tx.salesman_id) === String(user?._id);
+    const userId = user?.id || user?._id;
+    const isOwner = String(tx.salesman_id) === String(userId);
     if (!isOwner || tx.edited || tx.priceEditedDirectly) return false;
     return (Date.now() - new Date(tx.date).getTime()) <= ONE_HOUR;
   };
@@ -174,7 +175,8 @@ export const PurchasePage = () => {
   const canRequestPriceChange = (tx) => {
     if (tx.status !== "active" && tx.status !== "return_rejected") return false;
     if (user?.role !== "salesman") return false;
-    const isOwner = String(tx.salesman_id) === String(user?._id);
+    const userId = user?.id || user?._id;
+    const isOwner = String(tx.salesman_id) === String(userId);
     if (!isOwner) return false;
 
     const diffMs = Date.now() - new Date(tx.date).getTime();
@@ -192,7 +194,8 @@ export const PurchasePage = () => {
   const canRequestReturn = (tx) => {
     if (tx.status !== "active" && tx.status !== "return_rejected") return false;
     if (user?.role !== "salesman") return false;
-    const isOwner = String(tx.salesman_id) === String(user?._id);
+    const userId = user?.id || user?._id;
+    const isOwner = String(tx.salesman_id) === String(userId);
     if (!isOwner) return false;
 
     const withinHour = (Date.now() - new Date(tx.date).getTime()) <= ONE_HOUR;
@@ -292,7 +295,8 @@ export const PurchasePage = () => {
       );
     }
 
-    const isOwner = String(tx.salesman_id) === String(user?._id);
+    const userId = user?.id || user?._id;
+    const isOwner = String(tx.salesman_id) === String(userId);
     if (!isOwner) return null;
 
     const latestReq = getRequestStatus(tx._id);
