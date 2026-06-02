@@ -76,7 +76,7 @@ const getWeekOffset = (value) => {
  * @returns {Object} metrics
  */
 export const getDashboardMetrics = async ({ dateFilter = {}, userId = null, isAdmin = false }) => {
-  const baseMatch = { status: "active" };
+  const baseMatch = { status: { $in: ["active", "pending_return", "return_rejected"] } };
   if (userId) {
     baseMatch.salesman_id = new mongoose.Types.ObjectId(userId);
   }
@@ -202,9 +202,9 @@ export const getDashboardMetrics = async ({ dateFilter = {}, userId = null, isAd
  * @param {number} weekOffset - how many weeks back
  * @returns {Object} chart data
  */
-export const getDashboardTrendData = async (baseMatch = { status: "active" }, weekOffset = 0, dateFilter = {}) => {
+export const getDashboardTrendData = async (baseMatch = { status: { $in: ["active", "pending_return", "return_rejected"] } }, weekOffset = 0, dateFilter = {}) => {
   // Ensure status is filtered if not already present
-  if (!baseMatch.status) baseMatch.status = "active";
+  if (!baseMatch.status) baseMatch.status = { $in: ["active", "pending_return", "return_rejected"] };
   let selectedWeekStart, selectedWeekEnd;
 
   // If a date filter is provided, try to extract a range from it for the charts
@@ -327,7 +327,7 @@ export const getDashboardTrendData = async (baseMatch = { status: "active" }, we
  * @returns {Object} { summary, byProduct }
  */
 export const getSalesTracking = async ({ dateFilter = {}, userId = null, role = "salesman" }) => {
-  const match = { ...dateFilter, status: "active" };
+  const match = { ...dateFilter, status: { $in: ["active", "pending_return", "return_rejected"] } };
   if (role !== "admin" && userId) {
     match.salesman_id = new mongoose.Types.ObjectId(userId);
   }
@@ -376,7 +376,7 @@ export const getSalesTracking = async ({ dateFilter = {}, userId = null, role = 
  * @returns {Array} [{ productName, totalSold }]
  */
 export const getTopSellingProducts = async ({ dateFilter = {}, limit = 10 }) => {
-  const match = { ...dateFilter, status: "active" };
+  const match = { ...dateFilter, status: { $in: ["active", "pending_return", "return_rejected"] } };
 
   const results = await Sale.aggregate([
     { $match: match },
@@ -409,7 +409,7 @@ export const getTopSellingProducts = async ({ dateFilter = {}, limit = 10 }) => 
  * @returns {Array} sales documents
  */
 export const getSalesForExport = async ({ dateFilter = {}, userId = null, role = "salesman" }) => {
-  const query = { ...dateFilter, status: "active" };
+  const query = { ...dateFilter, status: { $in: ["active", "pending_return", "return_rejected"] } };
   if (role !== "admin" && userId) {
     query.salesman_id = userId;
   }

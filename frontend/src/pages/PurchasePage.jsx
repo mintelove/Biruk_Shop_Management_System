@@ -14,12 +14,25 @@ const DownloadIcon = () => (
 const ONE_HOUR = 60 * 60 * 1000;
 
 const statusBadge = (status) => {
-  const colors = { active: "#22c55e", returned: "#f59e0b", reversed: "#ef4444" };
+  const colors = {
+    active: "#22c55e",
+    returned: "#f59e0b",
+    reversed: "#ef4444",
+    pending_return: "#eab308",
+    return_rejected: "#ef4444"
+  };
+  const labels = {
+    active: "active",
+    returned: "returned",
+    reversed: "reversed",
+    pending_return: "pending return",
+    return_rejected: "return rejected"
+  };
   return (
     <span style={{
       display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
       background: `${colors[status] || "#94a3b8"}22`, color: colors[status] || "#94a3b8", textTransform: "uppercase"
-    }}>{status}</span>
+    }}>{labels[status] || status}</span>
   );
 };
 
@@ -29,7 +42,7 @@ const adminPriceBadge = (price) => (
     background: "rgba(59,130,246,0.08)", color: "#2563eb", border: "1px solid rgba(59,130,246,0.15)",
     marginBottom: "0.5rem"
   }}>
-    💰 Admin Price: <strong>Br {Number(price).toFixed(2)}</strong>
+    💰 Minimum Allowed Price: <strong>Br {Number(price).toFixed(2)}</strong>
   </div>
 );
 
@@ -37,28 +50,33 @@ export const PurchasePage = () => {
   const { t, language } = useI18n();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  
   const [data, setData] = useState({ transactions: [], byProduct: [], totalProfit: 0 });
   const [dateFilter, setDateFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [search, setSearch] = useState("");
 
-  // Edit modal
+  // Edit modal (Salesman direct edit or Admin edit)
   const [editTx, setEditTx] = useState(null);
   const [editForm, setEditForm] = useState({ sellingPrice: "" });
   const [editError, setEditError] = useState("");
 
-  // Request modal (cashback / price change)
+  // Request modal (Salesman price_change / return request)
   const [reqTx, setReqTx] = useState(null);
-  const [reqType, setReqType] = useState("cashback");
+  const [reqType, setReqType] = useState("price_change"); // "price_change" or "return"
   const [reqReason, setReqReason] = useState("");
   const [reqNewPrice, setReqNewPrice] = useState("");
   const [reqError, setReqError] = useState("");
   const [reqSuccess, setReqSuccess] = useState("");
 
-  // Admin: edit requests
+  // Admin: pending edit/return requests
   const [editRequests, setEditRequests] = useState([]);
-  // Salesman: own edit requests (for button state)
+  const [activeTab, setActiveTab] = useState("price_change"); // "price_change" or "return"
+  const [rejectingReq, setRejectingReq] = useState(null);
+  const [rejectionNote, setRejectionNote] = useState("");
+
+  // Salesman: own requests list
   const [myRequests, setMyRequests] = useState([]);
 
   const fetchData = useCallback(async () => {
@@ -92,13 +110,20 @@ export const PurchasePage = () => {
     fetchData();
     fetchEditRequests();
     fetchMyRequests();
-    const interval = setInterval(() => { fetchData(); fetchMyRequests(); }, 3000);
+    const interval = setInterval(() => {
+      fetchData();
+      fetchMyRequests();
+      if (isAdmin) fetchEditRequests();
+    }, 4000);
     return () => clearInterval(interval);
-  }, [fetchData, fetchEditRequests, fetchMyRequests]);
+  }, [fetchData, fetchEditRequests, fetchMyRequests, isAdmin]);
 
-  useSocket("stock:update", () => { fetchData(); fetchEditRequests(); fetchMyRequests(); });
+  useSocket("stock:update", () => {
+    fetchData();
+    fetchEditRequests();
+    fetchMyRequests();
+  });
 
-  // Get the latest request for a transaction
   const getRequestStatus = (txId) => {
     const reqs = myRequests.filter(r => String(r.transaction_id?._id || r.transaction_id) === String(txId));
     if (reqs.length === 0) return null;
@@ -136,29 +161,65 @@ export const PurchasePage = () => {
       .catch(() => {});
   };
 
-  // Permission: can salesman edit price (within 1hr, operationUsed=false)
+  // Salesman: direct edit price allowed only once, within 1 hour
   const canEditPrice = (tx) => {
-    if (tx.status !== "active") return false;
-    if (isAdmin) return true;
+    if (tx.status !== "active" && tx.status !== "return_rejected") return false;
+    if (user?.role !== "salesman") return false;
     const isOwner = String(tx.salesman_id) === String(user?._id);
-    if (!isOwner || tx.operationUsed) return false;
+    if (!isOwner || tx.edited || tx.priceEditedDirectly) return false;
     return (Date.now() - new Date(tx.date).getTime()) <= ONE_HOUR;
   };
 
-  // Permission: can salesman send request (operationUsed=false, after 1hr OR within 1hr for return)
-  const canSendRequest = (tx) => {
-    if (tx.status !== "active") return false;
-    if (isAdmin) return false;
+  // Salesman: request price change allowed after 1 hour, or after first edit, indefinitely
+  const canRequestPriceChange = (tx) => {
+    if (tx.status !== "active" && tx.status !== "return_rejected") return false;
+    if (user?.role !== "salesman") return false;
     const isOwner = String(tx.salesman_id) === String(user?._id);
-    if (!isOwner || tx.operationUsed) return false;
-    return true; // Can always request if operationUsed=false
+    if (!isOwner) return false;
+
+    const diffMs = Date.now() - new Date(tx.date).getTime();
+    const isAfterHour = diffMs > ONE_HOUR;
+    const isAlreadyEdited = tx.edited || tx.priceEditedDirectly;
+
+    if (!isAfterHour && !isAlreadyEdited) return false;
+
+    const latest = getRequestStatus(tx._id);
+    if (latest && latest.status === "pending") return false;
+    return true;
   };
 
-  // Edit price
+  // Salesman: return request allowed within 1 hour of original sale
+  const canRequestReturn = (tx) => {
+    if (tx.status !== "active" && tx.status !== "return_rejected") return false;
+    if (user?.role !== "salesman") return false;
+    const isOwner = String(tx.salesman_id) === String(user?._id);
+    if (!isOwner) return false;
+
+    const withinHour = (Date.now() - new Date(tx.date).getTime()) <= ONE_HOUR;
+    if (!withinHour) return false;
+
+    const latest = getRequestStatus(tx._id);
+    if (latest && latest.status === "pending") return false;
+    return true;
+  };
+
+  // Salesman/Admin direct edit price submission
   const onEditSubmit = async () => {
     setEditError("");
+    const newPriceVal = Number(editForm.sellingPrice);
+    if (!newPriceVal || newPriceVal <= 0) {
+      setEditError("Please enter a valid selling price.");
+      return;
+    }
+    
+    // Enforce minSellingPrice validation
+    if (editTx.minSellingPrice && newPriceVal < editTx.minSellingPrice) {
+      setEditError("Requested price is below the minimum selling price.");
+      return;
+    }
+
     try {
-      await api.put(`/sales/${editTx._id}`, { sellingPrice: Number(editForm.sellingPrice) });
+      await api.put(`/sales/${editTx._id}`, { sellingPrice: newPriceVal });
       setEditTx(null);
       fetchData();
     } catch (err) {
@@ -166,29 +227,51 @@ export const PurchasePage = () => {
     }
   };
 
-  // Submit request (cashback = return request, price_change)
+  // Salesman: submit a price change or return request
   const onReqSubmit = async () => {
-    setReqError(""); setReqSuccess("");
+    setReqError("");
+    setReqSuccess("");
     try {
-      const body = { transactionId: reqTx._id, type: reqType, reason: reqReason };
-      if (reqType === "price_change") body.newPrice = Number(reqNewPrice);
+      const body = { transactionId: reqTx._id, type: reqType, reason: reqReason.trim() };
+      if (reqType === "price_change") {
+        const valPrice = Number(reqNewPrice);
+        if (!valPrice || valPrice <= 0) {
+          setReqError("Please enter a valid price.");
+          return;
+        }
+        if (reqTx.minSellingPrice && valPrice < reqTx.minSellingPrice) {
+          setReqError("Requested price is below the minimum selling price.");
+          return;
+        }
+        body.newPrice = valPrice;
+      }
+
       await api.post("/edit-requests", body);
-      setReqSuccess("Request submitted!");
+      setReqSuccess("Request submitted successfully!");
       fetchMyRequests();
       fetchData();
-      setTimeout(() => { setReqTx(null); setReqReason(""); setReqNewPrice(""); setReqSuccess(""); }, 1500);
+      setTimeout(() => {
+        setReqTx(null);
+        setReqReason("");
+        setReqNewPrice("");
+        setReqSuccess("");
+      }, 1500);
     } catch (err) {
       setReqError(err.response?.data?.message || "Request failed.");
     }
   };
 
-  // Admin: approve/reject
-  const onReview = async (id, status) => {
+  // Admin: approve or reject
+  const onReview = async (id, status, admin_note = "") => {
     try {
-      await api.patch(`/edit-requests/${id}`, { status });
+      await api.patch(`/edit-requests/${id}`, { status, admin_note });
       fetchEditRequests();
       fetchData();
-    } catch { /* silent */ }
+      setRejectingReq(null);
+      setRejectionNote("");
+    } catch (err) {
+      alert(err.response?.data?.message || "Review failed.");
+    }
   };
 
   const profitCardClass = data.totalProfit > 0
@@ -196,10 +279,10 @@ export const PurchasePage = () => {
     : data.totalProfit < 0 ? "profit-total-card profit-total-card--negative" : "profit-total-card profit-total-card--zero";
 
   const pendingRequests = editRequests.filter(r => r.status === "pending");
+  const priceChangeRequests = pendingRequests.filter(r => r.type === "price_change");
+  const returnRequests = pendingRequests.filter(r => r.type === "return" || r.type === "cashback");
 
-  // Render action buttons for a transaction
   const renderActions = (tx) => {
-    // Admin always gets edit
     if (isAdmin) {
       return (
         <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
@@ -209,57 +292,46 @@ export const PurchasePage = () => {
       );
     }
 
-    // Not owner
     const isOwner = String(tx.salesman_id) === String(user?._id);
-    if (!isOwner || tx.status !== "active") return null;
+    if (!isOwner) return null;
 
-    // Operation already used — check request status
-    if (tx.operationUsed) {
-      const latestReq = getRequestStatus(tx._id);
-      if (latestReq && latestReq.status === "pending") {
-        return (
-          <span style={{
-            display: "inline-block", padding: "0.2rem 0.5rem", fontSize: "0.7rem",
-            color: "#f59e0b", fontWeight: 600, lineHeight: "1.3"
-          }}>
-            ⏳ Requested, please wait until approved by admin
-          </span>
-        );
-      }
+    const latestReq = getRequestStatus(tx._id);
+    if (latestReq && latestReq.status === "pending") {
       return (
         <span style={{
-          display: "inline-block", padding: "0.2rem 0.5rem", fontSize: "0.72rem",
-          color: "#94a3b8", fontWeight: 600
+          display: "inline-block", padding: "0.2rem 0.5rem", fontSize: "0.7rem",
+          color: "#f59e0b", fontWeight: 600, lineHeight: "1.3"
         }}>
-          🔒 Action already used
+          ⏳ Pending {latestReq.type === "price_change" ? "Price Change" : "Return"}
         </span>
       );
     }
 
-    const withinHour = (Date.now() - new Date(tx.date).getTime()) <= ONE_HOUR;
+    const showDirectEdit = canEditPrice(tx);
+    const showRequestPriceChange = canRequestPriceChange(tx);
+    const showReturn = canRequestReturn(tx);
 
-    // Within 1 hour: show Edit Price + Return (as request)
-    if (withinHour) {
-      return (
-        <>
-          <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", marginRight: "0.25rem" }}
-            onClick={() => { setEditTx(tx); setEditForm({ sellingPrice: tx.sellingPrice }); setEditError(""); }}>
-            ✏️ Edit Price
-          </button>
-          <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#f59e0b" }}
-            onClick={() => { setReqTx(tx); setReqType("cashback"); setReqReason(""); setReqNewPrice(""); setReqError(""); setReqSuccess(""); }}>
-            ↩️ Return
-          </button>
-        </>
-      );
-    }
-
-    // After 1 hour: show Request button
     return (
-      <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#8b5cf6" }}
-        onClick={() => { setReqTx(tx); setReqType("cashback"); setReqReason(""); setReqNewPrice(""); setReqError(""); setReqSuccess(""); }}>
-        📝 Send Request
-      </button>
+      <div style={{ display: "flex", gap: "0.3rem" }}>
+        {showDirectEdit && (
+          <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem" }}
+            onClick={() => { setEditTx(tx); setEditForm({ sellingPrice: tx.sellingPrice }); setEditError(""); }}>
+            Edit Price
+          </button>
+        )}
+        {showRequestPriceChange && (
+          <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#8b5cf6" }}
+            onClick={() => { setReqTx(tx); setReqType("price_change"); setReqReason(""); setReqNewPrice(""); setReqError(""); setReqSuccess(""); }}>
+            Request Price Change
+          </button>
+        )}
+        {showReturn && (
+          <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#e11d48" }}
+            onClick={() => { setReqTx(tx); setReqType("return"); setReqReason(""); setReqNewPrice(""); setReqError(""); setReqSuccess(""); }}>
+            Return
+          </button>
+        )}
+      </div>
     );
   };
 
@@ -304,7 +376,7 @@ export const PurchasePage = () => {
           <p className="profit-total-label">{t("sales.totalProfit")}</p>
           <p className="profit-total-value">{formatCurrency(data.totalProfit)}</p>
           <p className="profit-total-subtitle">
-            {data.transactions.filter(tx => tx.status === "active").length} {t("dashboard.transactions")}
+            {data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} {t("dashboard.transactions")}
           </p>
         </div>
 
@@ -313,42 +385,73 @@ export const PurchasePage = () => {
           <p className="profit-total-label" style={{ color: "rgba(255,255,255,0.9)" }}>Total Items Sold</p>
           <p className="profit-total-value" style={{ color: "#fff" }}>{data.totalItemsSold || 0}</p>
           <p className="profit-total-subtitle" style={{ color: "rgba(255,255,255,0.8)" }}>
-            Across all {data.transactions.filter(tx => tx.status === "active").length} active transactions
+            Across all {data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} active transactions
           </p>
         </div>
       </div>
 
-      {/* Admin: Pending Edit Requests */}
+      {/* Admin pending requests queue with TABS */}
       {isAdmin && pendingRequests.length > 0 && (
         <div className="card profit-table-card">
-          <h3 style={{ marginBottom: "0.8rem" }}>📋 {t("sales.pendingEditRequests")} ({pendingRequests.length})</h3>
+          <h3 style={{ marginBottom: "0.8rem" }}>📋 Sales Approval Worklist ({pendingRequests.length} Pending)</h3>
+          
+          <div className="admin-tabs-nav">
+            <button className={`admin-tab-btn ${activeTab === "price_change" ? "active" : ""}`} onClick={() => setActiveTab("price_change")}>
+              💲 Price Change ({priceChangeRequests.length})
+            </button>
+            <button className={`admin-tab-btn ${activeTab === "return" ? "active" : ""}`} onClick={() => setActiveTab("return")}>
+              ↩️ Return Requests ({returnRequests.length})
+            </button>
+          </div>
+
           <table>
             <thead>
               <tr>
                 <th>{t("sales.salesman")}</th>
                 <th>{t("sales.product")}</th>
-                <th>Type</th>
+                {activeTab === "return" && <th>{t("sales.qty")}</th>}
+                <th>Original Price</th>
+                <th>{activeTab === "price_change" ? "Requested Price" : "Refund Amount"}</th>
                 <th>{t("sales.reason")}</th>
-                <th>New Price</th>
                 <th>Requested</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {pendingRequests.map((r) => (
-                <tr key={r._id}>
-                  <td>{r.salesman_id?.name || "N/A"}</td>
-                  <td>{r.transaction_id?.product_name || "N/A"}</td>
-                  <td>{statusBadge(r.type)}</td>
-                  <td>{r.reason}</td>
-                  <td>{r.type === "price_change" && r.newPrice ? formatCurrency(r.newPrice) : "—"}</td>
-                  <td>{new Date(r.createdAt).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
-                  <td style={{ display: "flex", gap: "0.3rem" }}>
-                    <button className="btn" style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }} onClick={() => onReview(r._id, "approved")}>{t("sales.approve")}</button>
-                    <button className="btn btn-danger" style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }} onClick={() => onReview(r._id, "rejected")}>{t("sales.reject")}</button>
+              {(activeTab === "price_change" ? priceChangeRequests : returnRequests).length === 0 ? (
+                <tr>
+                  <td colSpan={activeTab === "return" ? 8 : 7} style={{ textAlign: "center", padding: "2rem", color: "var(--muted)" }}>
+                    No pending {activeTab === "price_change" ? "price change" : "return"} requests in queue.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                (activeTab === "price_change" ? priceChangeRequests : returnRequests).map((r) => (
+                  <tr key={r._id}>
+                    <td>{r.salesman_id?.name || "N/A"}</td>
+                    <td>{r.transaction_id?.product_name || "N/A"}</td>
+                    {activeTab === "return" && <td>{r.transaction_id?.quantity || "—"}</td>}
+                    <td>{formatCurrency(r.transaction_id?.unit_price || 0)}</td>
+                    <td>
+                      {r.type === "price_change" 
+                        ? formatCurrency(r.newPrice || 0) 
+                        : formatCurrency(r.transaction_id?.total_price || 0)
+                      }
+                    </td>
+                    <td>
+                      <span style={{ fontStyle: "italic" }}>"{r.reason}"</span>
+                    </td>
+                    <td>{new Date(r.createdAt).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
+                    <td style={{ display: "flex", gap: "0.3rem" }}>
+                      <button className="btn" style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem", background: "#22c55e" }} onClick={() => onReview(r._id, "approved")}>
+                        {t("sales.approve")}
+                      </button>
+                      <button className="btn btn-danger" style={{ padding: "0.3rem 0.7rem", fontSize: "0.8rem" }} onClick={() => setRejectingReq(r)}>
+                        {t("sales.reject")}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -396,11 +499,11 @@ export const PurchasePage = () => {
               <th>{t("sales.product")}</th>
               <th>{t("sales.qty")}</th>
               <th>{t("sales.unitPrice")}</th>
-              <th>{t("products.priceBr")}</th>
+              <th>Cost Price</th>
               <th>{t("sales.totalProfit")}</th>
               <th>{t("sales.salesman")}</th>
               <th>Status</th>
-              <th></th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -408,7 +511,7 @@ export const PurchasePage = () => {
               <tr><td colSpan={9} className="no-results">{t("sales.noResults")}</td></tr>
             ) : (
               filteredTransactions.map((tx) => (
-                <tr key={tx._id} style={tx.status !== "active" ? { opacity: 0.55 } : undefined}>
+                <tr key={tx._id} style={tx.status !== "active" && tx.status !== "pending_return" && tx.status !== "return_rejected" ? { opacity: 0.55 } : undefined}>
                   <td>{new Date(tx.date).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
                   <td>{tx.product_name}</td>
                   <td>{tx.quantity}</td>
@@ -436,19 +539,78 @@ export const PurchasePage = () => {
         </table>
       </div>
 
+      {/* Salesman: My Request History */}
+      {!isAdmin && myRequests.length > 0 && (
+        <div className="card profit-table-card">
+          <h3 style={{ marginBottom: "0.8rem" }}>📄 My Request History</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>{t("sales.product")}</th>
+                <th>Details</th>
+                <th>Status</th>
+                <th>Submitted</th>
+                <th>Admin Feedback</th>
+              </tr>
+            </thead>
+            <tbody>
+              {myRequests.map((r) => {
+                const statusColors = { pending: "#eab308", approved: "#22c55e", rejected: "#ef4444" };
+                return (
+                  <tr key={r._id}>
+                    <td>
+                      <span style={{
+                        display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
+                        background: `${r.type === "price_change" ? "#8b5cf6" : "#e11d48"}18`,
+                        color: r.type === "price_change" ? "#8b5cf6" : "#e11d48", textTransform: "uppercase"
+                      }}>{r.type === "price_change" ? "Price Change" : "Return"}</span>
+                    </td>
+                    <td>{r.transaction_id?.product_name || "N/A"}</td>
+                    <td style={{ fontSize: "0.82rem" }}>
+                      {r.type === "price_change" ? (
+                        <span>{formatCurrency(r.oldPrice || 0)} → <strong>{formatCurrency(r.newPrice || 0)}</strong></span>
+                      ) : (
+                        <span>Refund: {formatCurrency(r.refundAmount || r.transaction_id?.total_price || 0)}</span>
+                      )}
+                    </td>
+                    <td>
+                      <span style={{
+                        display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
+                        background: `${statusColors[r.status] || "#94a3b8"}22`, color: statusColors[r.status] || "#94a3b8", textTransform: "uppercase"
+                      }}>{r.status}</span>
+                    </td>
+                    <td style={{ fontSize: "0.82rem" }}>{new Date(r.createdAt).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
+                    <td style={{ fontSize: "0.82rem" }}>
+                      {r.status === "rejected" && r.admin_note ? (
+                        <span style={{ color: "#dc2626", fontWeight: 600 }}>⚠️ {r.admin_note}</span>
+                      ) : r.status === "approved" ? (
+                        <span style={{ color: "#22c55e", fontWeight: 600 }}>✅ Approved</span>
+                      ) : (
+                        <span style={{ color: "#94a3b8" }}>⏳ Awaiting review</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Edit Price Modal */}
       {editTx && (
         <div className="modal-backdrop" onClick={() => setEditTx(null)}>
           <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>✏️ {t("sales.editTransaction")}</h3>
+            <h3>✏️ {isAdmin ? "Admin Edit Price" : "Edit Transaction Price"}</h3>
             <p style={{ margin: "0.4rem 0", color: "var(--muted)" }}>{editTx.product_name}</p>
-            {adminPriceBadge(editTx.minSellingPrice)}
+            {editTx.minSellingPrice && adminPriceBadge(editTx.minSellingPrice)}
             {editError && <p className="error" style={{ margin: "0.4rem 0" }}>{editError}</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
               <div>
-                <label style={{ fontSize: "0.85rem" }}>Selling Price</label>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>Selling Price</label>
                 <input type="number" min="0.01" step="0.01" value={editForm.sellingPrice}
-                  onChange={(e) => setEditForm({ ...editForm, sellingPrice: e.target.value })} style={{ width: "100%" }} />
+                  onChange={(e) => setEditForm({ ...editForm, sellingPrice: e.target.value })} style={{ width: "100%", padding: "0.55rem" }} />
               </div>
               <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
                 <button className="btn" onClick={onEditSubmit}>{t("sales.save")}</button>
@@ -459,39 +621,76 @@ export const PurchasePage = () => {
         </div>
       )}
 
-      {/* Request Modal (Cashback / Price Change) */}
+      {/* Request Modal (Price Change / Return) */}
       {reqTx && (
         <div className="modal-backdrop" onClick={() => setReqTx(null)}>
           <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>📝 {t("sales.requestEditPermission")}</h3>
-            <p style={{ margin: "0.4rem 0", color: "var(--muted)" }}>{reqTx.product_name} — {new Date(reqTx.date).toLocaleDateString()}</p>
-            {adminPriceBadge(reqTx.minSellingPrice)}
+            <h3>{reqType === "return" ? "↩️ Request Return Approval" : "📝 Request Price Change"}</h3>
+
+            {/* Transaction Details */}
+            <div style={{
+              margin: "0.6rem 0", padding: "0.7rem", borderRadius: "10px",
+              background: "var(--card-bg, rgba(100,116,139,0.06))",
+              border: "1px solid var(--input-border, rgba(100,116,139,0.15))"
+            }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem 1rem", fontSize: "0.84rem" }}>
+                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Transaction ID:</span> <strong style={{ fontFamily: "monospace", fontSize: "0.78rem" }}>{String(reqTx._id).slice(-8).toUpperCase()}</strong></div>
+                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Product:</span> <strong>{reqTx.product_name}</strong></div>
+                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Quantity Sold:</span> <strong>{reqTx.quantity}</strong></div>
+                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Selling Price:</span> <strong>Br {Number(reqTx.sellingPrice).toFixed(2)}</strong></div>
+              </div>
+            </div>
+
+            {reqType === "price_change" && reqTx.minSellingPrice && adminPriceBadge(reqTx.minSellingPrice)}
             {reqError && <p className="error" style={{ margin: "0.4rem 0" }}>{reqError}</p>}
             {reqSuccess && <p style={{ margin: "0.4rem 0", color: "#22c55e", fontWeight: 600 }}>{reqSuccess}</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
-              <div>
-                <label style={{ fontSize: "0.85rem" }}>Request Type</label>
-                <select value={reqType} onChange={(e) => setReqType(e.target.value)}
-                  style={{ width: "100%", padding: "0.5rem", borderRadius: "8px", border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--input-text)", fontSize: "0.92rem" }}>
-                  <option value="cashback">💰 Cashback (Return + Refund)</option>
-                  <option value="price_change">💲 Price Change</option>
-                </select>
-              </div>
               {reqType === "price_change" && (
                 <div>
-                  <label style={{ fontSize: "0.85rem" }}>New Price</label>
+                  <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>Requested Unit Price (Br)</label>
                   <input type="number" min="0.01" step="0.01" value={reqNewPrice}
-                    onChange={(e) => setReqNewPrice(e.target.value)} style={{ width: "100%" }} />
+                    onChange={(e) => setReqNewPrice(e.target.value)} style={{ width: "100%", padding: "0.55rem" }} />
                 </div>
               )}
               <div>
-                <label style={{ fontSize: "0.85rem" }}>{t("sales.reason")}</label>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>
+                  {reqType === "return" ? "Reason for Return" : "Reason for Price Correction"}
+                </label>
                 <textarea value={reqReason} onChange={(e) => setReqReason(e.target.value)} rows={3}
+                  placeholder={reqType === "return" ? "Describe the customer issue or return details..." : "Describe why this correction is necessary..."}
                   style={{ width: "100%", padding: "0.5rem", borderRadius: "8px", border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--input-text)", fontFamily: "inherit", fontSize: "0.92rem", resize: "vertical" }} />
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button className="btn" onClick={onReqSubmit} disabled={!reqReason.trim()}>{t("sales.submitRequest")}</button>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
+                <button className="btn" onClick={onReqSubmit} disabled={!reqReason.trim()} style={{ background: reqType === "return" ? "#e11d48" : undefined }}>
+                  {t("sales.submitRequest")}
+                </button>
                 <button className="btn" style={{ background: "#64748b" }} onClick={() => setReqTx(null)}>{t("sales.cancel")}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Rejection Reason Modal */}
+      {rejectingReq && (
+        <div className="modal-backdrop" onClick={() => setRejectingReq(null)}>
+          <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ color: "#ef4444" }}>❌ Enter Rejection Note</h3>
+            <p style={{ margin: "0.4rem 0", color: "var(--muted)" }}>
+              Rejecting {rejectingReq.type === "price_change" ? "Price Change" : "Return"} request for "{rejectingReq.transaction_id?.product_name || "item"}".
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
+              <div>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>Rejection Reason (Salesman will see this)</label>
+                <textarea value={rejectionNote} onChange={(e) => setRejectionNote(e.target.value)} rows={3}
+                  placeholder="Explain why this request is being rejected..."
+                  style={{ width: "100%", padding: "0.5rem", borderRadius: "8px", border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--input-text)", fontFamily: "inherit", fontSize: "0.92rem", resize: "vertical" }} />
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
+                <button className="btn btn-danger" onClick={() => onReview(rejectingReq._id, "rejected", rejectionNote)} disabled={!rejectionNote.trim()}>
+                  Confirm Rejection
+                </button>
+                <button className="btn" style={{ background: "#64748b" }} onClick={() => setRejectingReq(null)}>{t("sales.cancel")}</button>
               </div>
             </div>
           </div>

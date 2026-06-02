@@ -1,13 +1,16 @@
 import express from "express";
-import { EditRequest } from "../models/EditRequest.js";
+import { PriceChangeRequest } from "../models/PriceChangeRequest.js";
+import { ReturnRequest } from "../models/ReturnRequest.js";
 import { Sale } from "../models/Sale.js";
 import { Product } from "../models/Product.js";
+import { Notification } from "../models/Notification.js";
 import { protect, authorize } from "../middleware/auth.js";
 import { emitStockUpdate } from "../utils/socket.js";
+import { getRecordCurrency, toAppCurrency } from "../utils/currency.js";
 
 const router = express.Router();
 
-// Salesman: submit an edit request (cashback or price_change)
+// Salesman: submit an edit request (price_change or return)
 router.post("/", protect, authorize("salesman", "admin"), async (req, res, next) => {
   try {
     const { transactionId, type, reason, newPrice } = req.body;
@@ -15,14 +18,17 @@ router.post("/", protect, authorize("salesman", "admin"), async (req, res, next)
     if (!transactionId || !type || !reason || !reason.trim()) {
       return res.status(400).json({ success: false, message: "Transaction ID, type, and reason are required." });
     }
-    if (!["cashback", "price_change"].includes(type)) {
-      return res.status(400).json({ success: false, message: "Type must be 'cashback' or 'price_change'." });
+    if (!["price_change", "return", "cashback"].includes(type)) {
+      return res.status(400).json({ success: false, message: "Type must be 'price_change' or 'return'." });
     }
-    if (type === "price_change" && (!newPrice || Number(newPrice) <= 0)) {
+
+    const normType = type === "cashback" ? "return" : type;
+
+    if (normType === "price_change" && (!newPrice || Number(newPrice) <= 0)) {
       return res.status(400).json({ success: false, message: "New price is required for price change requests." });
     }
 
-    const sale = await Sale.findById(transactionId);
+    const sale = await Sale.findById(transactionId).populate("product_id", "minSellingPrice currency");
     if (!sale) {
       return res.status(404).json({ success: false, message: "Transaction not found." });
     }
@@ -32,77 +38,223 @@ router.post("/", protect, authorize("salesman", "admin"), async (req, res, next)
       return res.status(403).json({ success: false, message: "You can only request edits for your own transactions." });
     }
 
-    if (sale.status !== "active") {
-      return res.status(400).json({ success: false, message: "Transaction is already returned/reversed." });
+    if (sale.status !== "active" && sale.status !== "return_rejected") {
+      return res.status(400).json({ success: false, message: "Transaction is already returned/reversed or has a pending return." });
     }
 
-    // Check if operation already used
-    if (sale.operationUsed) {
-      return res.status(403).json({ success: false, message: "Action already used for this transaction." });
+    const diffMs = Date.now() - new Date(sale.createdAt).getTime();
+    const ONE_HOUR = 60 * 60 * 1000;
+
+    // Return request logic:
+    if (normType === "return") {
+      // Must be within 1 hour
+      if (diffMs > ONE_HOUR) {
+        return res.status(403).json({ success: false, message: "Return requests can only be submitted within 1 hour of the sale." });
+      }
+      
+      // Check for existing pending request
+      const existing = await ReturnRequest.findOne({
+        transactionId,
+        salesmanId: req.user._id,
+        status: "pending"
+      });
+      if (existing) {
+        return res.status(400).json({ success: false, message: "You already have a pending request for this transaction." });
+      }
+
+      // Create return request
+      const retReq = await ReturnRequest.create({
+        transactionId,
+        reason: reason.trim(),
+        salesmanId: req.user._id,
+        status: "pending"
+      });
+
+      sale.status = "pending_return";
+      sale.operationUsed = true; // Mark operation used
+      await sale.save();
+
+      emitStockUpdate({ type: "request-created", saleId: sale._id });
+
+      // Return in format frontend expects
+      return res.status(201).json({
+        success: true,
+        editRequest: {
+          _id: retReq._id,
+          transaction_id: transactionId,
+          salesman_id: req.user._id,
+          type: "return",
+          reason: retReq.reason,
+          status: retReq.status,
+          createdAt: retReq.createdAt
+        }
+      });
     }
 
-    // PRICE VALIDATION: newPrice must be >= current selling price
-    if (type === "price_change") {
-      if (Number(newPrice) < sale.unit_price) {
+    // Price change logic:
+    if (normType === "price_change") {
+      // Must be after 1 hour or after already edited
+      const withinHour = diffMs <= ONE_HOUR;
+      if (withinHour && !sale.edited && !sale.priceEditedDirectly) {
         return res.status(400).json({
           success: false,
-          message: "New price must be greater than or equal to the current selling price"
+          message: "You can edit the price directly within the first hour."
         });
       }
+
+      // Validate newPrice >= minSellingPrice
+      if (sale.product_id && sale.product_id.minSellingPrice) {
+        const sourceCurrency = getRecordCurrency(sale.product_id.currency);
+        const minPrice = toAppCurrency(sale.product_id.minSellingPrice, sourceCurrency);
+        if (Number(newPrice) < minPrice) {
+          return res.status(400).json({
+            success: false,
+            message: "Requested price is below the minimum selling price."
+          });
+        }
+      }
+
+      // Check for existing pending request
+      const existing = await PriceChangeRequest.findOne({
+        transactionId,
+        salesmanId: req.user._id,
+        status: "pending"
+      });
+      if (existing) {
+        return res.status(400).json({ success: false, message: "You already have a pending request for this transaction." });
+      }
+
+      // Create price change request
+      const pcReq = await PriceChangeRequest.create({
+        transactionId,
+        oldPrice: sale.unit_price,
+        requestedPrice: Number(newPrice),
+        reason: reason.trim(),
+        salesmanId: req.user._id,
+        status: "pending"
+      });
+
+      sale.operationUsed = true;
+      await sale.save();
+
+      emitStockUpdate({ type: "request-created", saleId: sale._id });
+
+      // Return in format frontend expects
+      return res.status(201).json({
+        success: true,
+        editRequest: {
+          _id: pcReq._id,
+          transaction_id: transactionId,
+          salesman_id: req.user._id,
+          type: "price_change",
+          reason: pcReq.reason,
+          newPrice: pcReq.requestedPrice,
+          oldPrice: pcReq.oldPrice,
+          status: pcReq.status,
+          createdAt: pcReq.createdAt
+        }
+      });
     }
 
-    // Check for existing pending request of same type
-    const existing = await EditRequest.findOne({
-      transaction_id: transactionId,
-      salesman_id: req.user._id,
-      status: "pending"
-    });
-    if (existing) {
-      return res.status(400).json({ success: false, message: "You already have a pending request for this transaction." });
-    }
-
-    const editReq = await EditRequest.create({
-      transaction_id: transactionId,
-      salesman_id: req.user._id,
-      type,
-      reason: reason.trim(),
-      newPrice: type === "price_change" ? Number(newPrice) : undefined
-    });
-
-    // Lock the transaction — operationUsed = true on request submission
-    sale.operationUsed = true;
-    await sale.save();
-
-    emitStockUpdate({ type: "request-created", saleId: sale._id });
-
-    return res.status(201).json({ success: true, editRequest: editReq });
   } catch (error) {
     return next(error);
   }
 });
 
-// Admin: get all edit requests
+// Admin: get all requests (unified from both collections)
 router.get("/", protect, authorize("admin"), async (req, res, next) => {
   try {
-    const requests = await EditRequest.find()
-      .sort({ createdAt: -1 })
-      .populate("salesman_id", "name email")
-      .populate("transaction_id", "product_name product_id quantity unit_price purchased_price total_price status createdAt");
+    const [priceReqs, returnReqs] = await Promise.all([
+      PriceChangeRequest.find()
+        .sort({ createdAt: -1 })
+        .populate("salesmanId", "name email")
+        .populate("transactionId", "product_name product_id quantity unit_price purchased_price total_price status createdAt"),
+      ReturnRequest.find()
+        .sort({ createdAt: -1 })
+        .populate("salesmanId", "name email")
+        .populate("transactionId", "product_name product_id quantity unit_price purchased_price total_price status createdAt")
+    ]);
 
-    return res.json(requests);
+    // Format priceReqs to match frontend schema
+    const formattedPriceReqs = priceReqs.map(r => ({
+      _id: r._id,
+      transaction_id: r.transactionId,
+      salesman_id: r.salesmanId,
+      type: "price_change",
+      reason: r.reason,
+      newPrice: r.requestedPrice,
+      oldPrice: r.oldPrice,
+      status: r.status,
+      admin_note: r.adminResponse,
+      createdAt: r.createdAt
+    }));
+
+    // Format returnReqs to match frontend schema
+    const formattedReturnReqs = returnReqs.map(r => ({
+      _id: r._id,
+      transaction_id: r.transactionId,
+      salesman_id: r.salesmanId,
+      type: "return",
+      reason: r.reason,
+      refundAmount: r.transactionId?.total_price || 0,
+      status: r.status,
+      admin_note: r.adminResponse,
+      createdAt: r.createdAt
+    }));
+
+    // Merge and sort by createdAt desc
+    const allReqs = [...formattedPriceReqs, ...formattedReturnReqs].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    return res.json(allReqs);
   } catch (error) {
     return next(error);
   }
 });
 
-// Salesman: get own requests
+// Salesman: get own requests (unified from both collections)
 router.get("/mine", protect, authorize("salesman", "admin"), async (req, res, next) => {
   try {
-    const requests = await EditRequest.find({ salesman_id: req.user._id })
-      .sort({ createdAt: -1 })
-      .populate("transaction_id", "product_name quantity unit_price total_price status createdAt");
+    const [priceReqs, returnReqs] = await Promise.all([
+      PriceChangeRequest.find({ salesmanId: req.user._id })
+        .sort({ createdAt: -1 })
+        .populate("transactionId", "product_name quantity unit_price total_price status createdAt"),
+      ReturnRequest.find({ salesmanId: req.user._id })
+        .sort({ createdAt: -1 })
+        .populate("transactionId", "product_name quantity unit_price total_price status createdAt")
+    ]);
 
-    return res.json(requests);
+    const formattedPriceReqs = priceReqs.map(r => ({
+      _id: r._id,
+      transaction_id: r.transactionId,
+      salesman_id: r.salesmanId,
+      type: "price_change",
+      reason: r.reason,
+      newPrice: r.requestedPrice,
+      oldPrice: r.oldPrice,
+      status: r.status,
+      admin_note: r.adminResponse,
+      createdAt: r.createdAt
+    }));
+
+    const formattedReturnReqs = returnReqs.map(r => ({
+      _id: r._id,
+      transaction_id: r.transactionId,
+      salesman_id: r.salesmanId,
+      type: "return",
+      reason: r.reason,
+      refundAmount: r.transactionId?.total_price || 0,
+      status: r.status,
+      admin_note: r.adminResponse,
+      createdAt: r.createdAt
+    }));
+
+    const allReqs = [...formattedPriceReqs, ...formattedReturnReqs].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    return res.json(allReqs);
   } catch (error) {
     return next(error);
   }
@@ -116,63 +268,138 @@ router.patch("/:id", protect, authorize("admin"), async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Status must be 'approved' or 'rejected'." });
     }
 
-    const editReq = await EditRequest.findById(req.params.id);
-    if (!editReq) {
-      return res.status(404).json({ success: false, message: "Edit request not found." });
+    // Determine request type and find document
+    let reqType = "";
+    let requestDoc = await PriceChangeRequest.findById(req.params.id);
+    if (requestDoc) {
+      reqType = "price_change";
+    } else {
+      requestDoc = await ReturnRequest.findById(req.params.id);
+      if (requestDoc) {
+        reqType = "return";
+      }
     }
-    if (editReq.status !== "pending") {
+
+    if (!requestDoc) {
+      return res.status(404).json({ success: false, message: "Request not found." });
+    }
+
+    if (requestDoc.status !== "pending") {
       return res.status(400).json({ success: false, message: "This request has already been reviewed." });
     }
 
-    // If approving, apply the action
-    if (status === "approved") {
-      const sale = await Sale.findById(editReq.transaction_id);
-      if (!sale) {
-        return res.status(404).json({ success: false, message: "Transaction not found." });
-      }
+    const sale = await Sale.findById(requestDoc.transactionId);
+    if (!sale) {
+      return res.status(404).json({ success: false, message: "Transaction not found." });
+    }
 
-      if (editReq.type === "cashback") {
-        // Reverse the transaction: restore stock
-        if (sale.status === "active") {
+    if (status === "approved") {
+      if (reqType === "return") {
+        // Return approved: restore stock
+        if (sale.status === "active" || sale.status === "pending_return") {
           const product = await Product.findById(sale.product_id);
           if (product) {
             product.quantity += sale.quantity;
             await product.save();
           }
           sale.status = "returned";
-          sale.adminMessage = "";
+          sale.adminMessage = "Customer refund approved and processed.";
           await sale.save();
 
           emitStockUpdate({ type: "sale-returned", saleId: sale._id, productId: sale.product_id });
         }
-      } else if (editReq.type === "price_change") {
-        // Update price
-        if (sale.status === "active" && editReq.newPrice) {
-          sale.unit_price = editReq.newPrice;
+
+        // Notification
+        await Notification.create({
+          salesman_id: requestDoc.salesmanId,
+          message: `Return request approved for "${sale.product_name}". Customer refund approved and processed.`,
+          type: "return_approved",
+          transaction_id: sale._id
+        });
+      } else if (reqType === "price_change") {
+        // Price change approved: update transaction price
+        if (sale.status === "active" || sale.status === "return_rejected") {
+          sale.unit_price = requestDoc.requestedPrice;
           sale.total_price = Number((sale.unit_price * sale.quantity).toFixed(2));
           sale.adminMessage = "";
           await sale.save();
 
           emitStockUpdate({ type: "sale-edited", saleId: sale._id });
         }
+
+        // Notification
+        await Notification.create({
+          salesman_id: requestDoc.salesmanId,
+          message: `Price change request approved for "${sale.product_name}". New price: Br ${requestDoc.requestedPrice.toFixed(2)}.`,
+          type: "price_change_approved",
+          transaction_id: sale._id
+        });
       }
     } else {
-      // REJECTED: set adminMessage on the transaction
-      const sale = await Sale.findById(editReq.transaction_id);
-      if (sale) {
-        sale.adminMessage = "Rejected by admin";
+      // REJECTED
+      const rejectionReason = admin_note || (reqType === "return" ? "Return period expired or item not eligible." : "Price adjustment not approved by administrator.");
+
+      if (reqType === "return") {
+        if (sale.status === "pending_return") {
+          sale.status = "return_rejected";
+        }
+        sale.adminMessage = `Return Request Rejected: ${rejectionReason}`;
         await sale.save();
+
+        // Notification
+        await Notification.create({
+          salesman_id: requestDoc.salesmanId,
+          message: `Return request rejected for "${sale.product_name}". Reason: ${rejectionReason}`,
+          type: "return_rejected",
+          transaction_id: sale._id
+        });
+
+        emitStockUpdate({ type: "request-rejected", saleId: sale._id });
+      } else if (reqType === "price_change") {
+        sale.adminMessage = `Price change request rejected by administrator.`;
+        if (admin_note && admin_note.trim()) {
+          sale.adminMessage += ` Reason: ${admin_note}`;
+        }
+        await sale.save();
+
+        // Notification
+        await Notification.create({
+          salesman_id: requestDoc.salesmanId,
+          message: `Price change request rejected for "${sale.product_name}". Reason: ${rejectionReason}`,
+          type: "price_change_rejected",
+          transaction_id: sale._id
+        });
+
         emitStockUpdate({ type: "request-rejected", saleId: sale._id });
       }
     }
 
-    editReq.status = status;
-    editReq.admin_note = admin_note || "";
-    editReq.reviewed_by = req.user._id;
-    editReq.reviewed_at = new Date();
-    await editReq.save();
+    // Save request doc updates
+    requestDoc.status = status === "approved" ? "approved" : "rejected";
+    requestDoc.adminResponse = admin_note || "";
+    await requestDoc.save();
 
-    return res.json({ success: true, editRequest: editReq });
+    emitStockUpdate({
+      type: "notification",
+      salesman_id: String(requestDoc.salesmanId),
+      requestType: reqType,
+      status,
+      productName: sale.product_name
+    });
+
+    return res.json({
+      success: true,
+      editRequest: {
+        _id: requestDoc._id,
+        transaction_id: sale._id,
+        salesman_id: requestDoc.salesmanId,
+        type: reqType,
+        status: requestDoc.status,
+        admin_note: requestDoc.adminResponse,
+        createdAt: requestDoc.createdAt
+      }
+    });
+
   } catch (error) {
     return next(error);
   }

@@ -301,6 +301,8 @@ router.get("/export-csv", protect, async (req, res, next) => {
 
 // ─── Profit Tracking ──────────────────────────────────────────────────────────
 // Shared helper: build profit data from sales (role-based)
+const ACTIVE_LIKE_STATUSES = ["active", "pending_return", "return_rejected"];
+
 async function buildProfitData(query, user) {
   // Role-based filtering: salesman sees only own transactions
   if (user && user.role === "salesman") {
@@ -310,7 +312,7 @@ async function buildProfitData(query, user) {
   const sales = await Sale.find(query)
     .sort({ createdAt: -1 })
     .populate("salesman_id", "name email")
-    .populate("product_id", "minSellingPrice");
+    .populate("product_id", "minSellingPrice currency");
 
   const transactions = sales.map((sale) => {
     const s = sale.toObject ? sale.toObject() : sale;
@@ -318,10 +320,19 @@ async function buildProfitData(query, user) {
     const sellingPrice = s.unit_price || 0;
     const qty = s.quantity || 0;
     const txStatus = s.status || "active";
-    // Only calculate profit for active transactions
-    const profit = txStatus === "active"
+    // Calculate profit for active-like transactions
+    const isActiveLike = ACTIVE_LIKE_STATUSES.includes(txStatus);
+    const profit = isActiveLike
       ? Number(((sellingPrice - purchasedPrice) * qty).toFixed(2))
       : 0;
+
+    // Convert minSellingPrice to app currency
+    let minSellingPrice = 0;
+    if (s.product_id?.minSellingPrice) {
+      const srcCurrency = getRecordCurrency(s.product_id.currency);
+      minSellingPrice = toAppCurrency(s.product_id.minSellingPrice, srcCurrency);
+    }
+
     return {
       _id: s._id,
       product_name: s.product_name,
@@ -335,15 +346,16 @@ async function buildProfitData(query, user) {
       salesman_id: s.salesman_id?._id || s.salesman_id,
       date: s.createdAt,
       operationUsed: !!s.operationUsed,
+      priceEditedDirectly: !!s.priceEditedDirectly,
       status: txStatus,
       adminMessage: s.adminMessage || "",
-      minSellingPrice: s.product_id?.minSellingPrice || 0
+      minSellingPrice
     };
   });
 
   const productMap = {};
   for (const tx of transactions) {
-    if (tx.status !== "active") continue; // Exclude returned items from product-level totals
+    if (!ACTIVE_LIKE_STATUSES.includes(tx.status)) continue; // Exclude returned/reversed from product-level totals
     const key = String(tx.product_id);
     if (!productMap[key]) {
       productMap[key] = { product_name: tx.product_name, totalQuantity: 0, totalProfit: 0 };
@@ -361,7 +373,7 @@ async function buildProfitData(query, user) {
   );
 
   const totalItemsSold = transactions
-    .filter(tx => tx.status === "active")
+    .filter(tx => ACTIVE_LIKE_STATUSES.includes(tx.status))
     .reduce((sum, tx) => sum + tx.quantity, 0);
 
   return { transactions, byProduct, totalProfit, totalItemsSold };
@@ -665,12 +677,12 @@ router.post("/:id/return", protect, authorize("admin"), async (req, res, next) =
 // ─── Edit Transaction Price (1-hour, once, salesman) ──────────────────────────
 router.put("/:id", protect, authorize("salesman", "admin"), async (req, res, next) => {
   try {
-    const sale = await Sale.findById(req.params.id);
+    const sale = await Sale.findById(req.params.id).populate("product_id", "minSellingPrice currency");
     if (!sale) {
       return res.status(404).json({ success: false, message: "Transaction not found." });
     }
 
-    if (sale.status !== "active") {
+    if (sale.status !== "active" && sale.status !== "return_rejected") {
       return res.status(400).json({ success: false, message: "Cannot edit a returned/reversed transaction." });
     }
 
@@ -683,11 +695,16 @@ router.put("/:id", protect, authorize("salesman", "admin"), async (req, res, nex
         return res.status(403).json({ success: false, message: "You can only edit your own transactions." });
       }
 
-      // Salesman: check if already edited once
-      if (sale.operationUsed) {
+      // Salesman: cannot modify quantity
+      if (req.body.quantity !== undefined) {
+        return res.status(403).json({ success: false, message: "Salesmen cannot modify quantity. Only the selling price can be edited." });
+      }
+
+      // Salesman: check if already directly edited price
+      if (sale.edited || sale.priceEditedDirectly) {
         return res.status(403).json({
           success: false,
-          message: "You have already edited this transaction once.",
+          message: "You have already edited the price for this transaction.",
           operationUsed: true
         });
       }
@@ -697,25 +714,11 @@ router.put("/:id", protect, authorize("salesman", "admin"), async (req, res, nex
       const ONE_HOUR = 60 * 60 * 1000;
 
       if (diffMs > ONE_HOUR) {
-        // Check if there's an approved edit request
-        const approved = await EditRequest.findOne({
-          transaction_id: sale._id,
-          salesman_id: req.user._id,
-          status: "approved"
+        return res.status(403).json({
+          success: false,
+          message: "Edit time expired. Submit a Price Change Request instead.",
+          editExpired: true
         });
-
-        if (!approved) {
-          return res.status(403).json({
-            success: false,
-            message: "Edit time expired. Only admin can edit this transaction.",
-            editExpired: true
-          });
-        }
-
-        // Consume the approval (mark as used)
-        approved.status = "rejected";
-        approved.admin_note = (approved.admin_note || "") + " [Used]";
-        await approved.save();
       }
     }
 
@@ -723,13 +726,14 @@ router.put("/:id", protect, authorize("salesman", "admin"), async (req, res, nex
     const { quantity, sellingPrice } = req.body;
     const oldQuantity = sale.quantity;
 
-    if (quantity !== undefined) {
+    // Only admins can change quantity
+    if (quantity !== undefined && isAdmin) {
       const newQty = Number(quantity);
       if (isNaN(newQty) || newQty < 1) {
         return res.status(400).json({ success: false, message: "Quantity must be at least 1." });
       }
       // Adjust product stock
-      const product = await Product.findById(sale.product_id);
+      const product = await Product.findById(sale.product_id._id || sale.product_id);
       if (product) {
         const diff = newQty - oldQuantity;
         if (diff > 0 && product.quantity < diff) {
@@ -746,17 +750,31 @@ router.put("/:id", protect, authorize("salesman", "admin"), async (req, res, nex
       if (isNaN(newPrice) || newPrice <= 0) {
         return res.status(400).json({ success: false, message: "Selling price must be a positive number." });
       }
-      // Price must be >= current selling price
-      if (newPrice < sale.unit_price) {
-        return res.status(400).json({ success: false, message: "Invalid price" });
+
+      // Validate against minSellingPrice for salesmen
+      if (!isAdmin) {
+        const productData = sale.product_id;
+        if (productData && productData.minSellingPrice) {
+          const sourceCurrency = getRecordCurrency(productData.currency);
+          const minPrice = toAppCurrency(productData.minSellingPrice, sourceCurrency);
+          if (newPrice < minPrice) {
+            return res.status(400).json({
+              success: false,
+              message: "Requested price is below the minimum selling price."
+            });
+          }
+        }
       }
+
       sale.unit_price = newPrice;
     }
 
     sale.total_price = Number((sale.unit_price * sale.quantity).toFixed(2));
 
-    // Mark as edited for salesman (one-time edit rule)
+    // Mark as directly edited for salesman (one-time edit rule)
     if (!isAdmin) {
+      sale.priceEditedDirectly = true;
+      sale.edited = true;
       sale.operationUsed = true;
     }
 

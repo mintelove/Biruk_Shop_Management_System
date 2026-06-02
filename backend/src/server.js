@@ -33,6 +33,7 @@ import analyticsRoutes from "./routes/analytics.js";
 import reportRoutes from "./routes/reports.js";
 import categoryRoutes from "./routes/categories.js";
 import editRequestRoutes from "./routes/editRequests.js";
+import notificationRoutes from "./routes/notifications.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { setSocketInstance } from "./utils/socket.js";
 import { seedAdmin } from "./seedAdmin.js";
@@ -69,6 +70,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/edit-requests", editRequestRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use(errorHandler);
 

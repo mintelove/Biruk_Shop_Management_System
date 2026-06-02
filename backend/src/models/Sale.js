@@ -11,7 +11,9 @@ const saleSchema = new mongoose.Schema(
     currency: { type: String, default: "ETB", enum: ["ETB", "USD"] },
     salesman_id: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     operationUsed: { type: Boolean, default: false },
-    status: { type: String, enum: ["active", "returned", "reversed"], default: "active" },
+    priceEditedDirectly: { type: Boolean, default: false },
+    edited: { type: Boolean, default: false },
+    status: { type: String, enum: ["active", "returned", "reversed", "pending_return", "return_rejected"], default: "active" },
     adminMessage: { type: String, default: "" }
   },
   { timestamps: true }

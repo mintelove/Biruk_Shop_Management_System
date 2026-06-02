@@ -17,7 +17,7 @@ const ALWAYS_PRESERVED_COLLECTIONS = ["users", "resetaudits"];
 const ALWAYS_PRESERVED = new Set(ALWAYS_PRESERVED_COLLECTIONS);
 
 // Resettable collections in the database
-const RESETTABLE_COLLECTIONS = ["categories", "products", "sales", "editrequests"];
+const RESETTABLE_COLLECTIONS = ["categories", "products", "sales", "editrequests", "price_change_requests", "return_requests"];
 
 // All system collections in the database
 const ALL_COLLECTIONS = [...RESETTABLE_COLLECTIONS, ...ALWAYS_PRESERVED_COLLECTIONS];
@@ -29,8 +29,8 @@ const VALID_OPTIONS = new Set(["all", "categories", "products", "sales", "profit
 const OPTION_TO_COLLECTIONS = {
   categories: ["categories"],
   products: ["products"],
-  sales: ["sales", "editrequests"],
-  profits: ["sales", "editrequests"]
+  sales: ["sales", "editrequests", "price_change_requests", "return_requests"],
+  profits: ["sales", "editrequests", "price_change_requests", "return_requests"]
 };
 
 // Human-readable labels used in API responses
