@@ -387,7 +387,7 @@ async function buildProfitData(query, user) {
 }
 
 // Profit CSV Export
-router.get("/purchases/export/csv", protect, authorize("salesman", "admin"), async (req, res, next) => {
+router.get("/purchases/export/csv", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
     const dateFilter = buildDateFilter(req.query);
     const profitData = await buildProfitData({ ...dateFilter }, req.user);
@@ -434,7 +434,7 @@ router.get("/purchases/export/csv", protect, authorize("salesman", "admin"), asy
 });
 
 // Profit PDF Export
-router.get("/purchases/export/pdf", protect, authorize("salesman", "admin"), async (req, res, next) => {
+router.get("/purchases/export/pdf", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
     const dateFilter = buildDateFilter(req.query);
     const profitData = await buildProfitData({ ...dateFilter }, req.user);
@@ -625,7 +625,7 @@ router.get("/purchases/export/pdf", protect, authorize("salesman", "admin"), asy
 });
 
 // Profit JSON endpoint (main data for frontend)
-router.get("/purchases", protect, authorize("salesman", "admin"), async (req, res, next) => {
+router.get("/purchases", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
     const dateFilter = buildDateFilter(req.query);
     const profitData = await buildProfitData({ ...dateFilter }, req.user);
@@ -636,7 +636,7 @@ router.get("/purchases", protect, authorize("salesman", "admin"), async (req, re
 });
 
 // ─── Return Items to Stock (1-hour limit for salesman) ────────────────────────
-router.post("/:id/return", protect, authorize("admin"), async (req, res, next) => {
+router.post("/:id/return", protect, authorize("admin", "purchaser"), async (req, res, next) => {
   try {
     const sale = await Sale.findById(req.params.id);
     if (!sale) {
@@ -647,9 +647,10 @@ router.post("/:id/return", protect, authorize("admin"), async (req, res, next) =
     }
 
     const isAdmin = req.user.role === "admin";
+    const isPurchaser = req.user.role === "purchaser";
     const isOwner = String(sale.salesman_id) === String(req.user._id);
 
-    if (!isAdmin) {
+    if (!isAdmin && !isPurchaser) {
       if (!isOwner) {
         return res.status(403).json({ success: false, message: "You can only return your own transactions." });
       }

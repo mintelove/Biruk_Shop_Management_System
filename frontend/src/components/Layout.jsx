@@ -24,20 +24,24 @@ export const Layout = () => {
         
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0.5rem 0 1.2rem", gap: "0.5rem", position: "relative" }}>
           <p className="muted" style={{ margin: 0, fontSize: "0.85rem", fontWeight: 500 }}>
-            {user?.name} ({user?.role === "admin" ? t("common.admin") : t("common.salesman")})
+            {user?.name} ({user?.role === "admin" ? t("common.admin") : user?.role === "purchaser" ? t("common.purchaser") : t("common.salesman")})
           </p>
         </div>
 
         <nav className="sidebar-nav">
-          <Link to="/" className={linkClass(location.pathname === "/")}>
-            {t("nav.dashboard")}
-          </Link>
+          {user?.role !== "purchaser" && (
+            <Link to="/" className={linkClass(location.pathname === "/")}>
+              {t("nav.dashboard")}
+            </Link>
+          )}
           <Link to="/products" className={linkClass(location.pathname === "/products")}>
             {t("nav.products")}
           </Link>
-          <Link to="/sales" className={linkClass(location.pathname === "/sales")}>
-            {t("nav.sales")}
-          </Link>
+          {user?.role !== "purchaser" && (
+            <Link to="/sales" className={linkClass(location.pathname === "/sales")}>
+              {t("nav.sales")}
+            </Link>
+          )}
           <Link to="/purchases" className={linkClass(location.pathname === "/purchases")}>
             {t("nav.purchases") || "Profit"}
           </Link>

@@ -71,12 +71,12 @@ router.post("/", protect, authorize("salesman", "admin"), async (req, res, next)
         status: "pending"
       });
 
-      // Create Admin Notifications
-      const admins = await User.find({ role: "admin" });
-      for (const admin of admins) {
+      // Create Reviewer Notifications (Admin and Purchaser)
+      const reviewers = await User.find({ role: { $in: ["admin", "purchaser"] } });
+      for (const reviewer of reviewers) {
         await Notification.create({
-          user_id: admin._id,
-          role: "admin",
+          user_id: reviewer._id,
+          role: reviewer.role,
           title: "Return Request Submitted",
           message: `Return request submitted by ${req.user.name || req.user.email} for product "${sale.product_name}". Transaction ID: ${sale._id}. Message: "${reason.trim()}"`,
           type: "return_submitted",
@@ -87,7 +87,7 @@ router.post("/", protect, authorize("salesman", "admin"), async (req, res, next)
 
       emitStockUpdate({
         type: "admin-notification",
-        admin_ids: admins.map(a => String(a._id)),
+        admin_ids: reviewers.map(r => String(r._id)),
         title: "Return Request Submitted",
         message: `Return request submitted by ${req.user.name || req.user.email} for product "${sale.product_name}".`
       });
@@ -204,14 +204,17 @@ router.post("/", protect, authorize("salesman", "admin"), async (req, res, next)
   }
 });
 
-// Admin: get all requests (unified from both collections)
-router.get("/", protect, authorize("admin"), async (req, res, next) => {
+// Admin/Purchaser: get all requests (unified from both collections)
+router.get("/", protect, authorize("admin", "purchaser"), async (req, res, next) => {
   try {
+    const isPurchaser = req.user.role === "purchaser";
     const [priceReqs, returnReqs] = await Promise.all([
-      PriceChangeRequest.find()
-        .sort({ createdAt: -1 })
-        .populate("salesmanId", "name email")
-        .populate("transactionId", "product_name product_id quantity unit_price purchased_price total_price status createdAt"),
+      isPurchaser
+        ? Promise.resolve([])
+        : PriceChangeRequest.find()
+            .sort({ createdAt: -1 })
+            .populate("salesmanId", "name email")
+            .populate("transactionId", "product_name product_id quantity unit_price purchased_price total_price status createdAt"),
       ReturnRequest.find()
         .sort({ createdAt: -1 })
         .populate("salesmanId", "name email")
@@ -311,8 +314,8 @@ router.get("/mine", protect, authorize("salesman", "admin"), async (req, res, ne
   }
 });
 
-// Admin: approve or reject
-router.patch("/:id", protect, authorize("admin"), async (req, res, next) => {
+// Admin/Purchaser: approve or reject
+router.patch("/:id", protect, authorize("admin", "purchaser"), async (req, res, next) => {
   try {
     const { status, admin_note } = req.body;
     if (!["approved", "rejected"].includes(status)) {
@@ -333,6 +336,10 @@ router.patch("/:id", protect, authorize("admin"), async (req, res, next) => {
 
     if (!requestDoc) {
       return res.status(404).json({ success: false, message: "Request not found." });
+    }
+
+    if (req.user.role === "purchaser" && reqType === "price_change") {
+      return res.status(403).json({ success: false, message: "Only administrators can review price change requests." });
     }
 
     if (requestDoc.status !== "pending") {

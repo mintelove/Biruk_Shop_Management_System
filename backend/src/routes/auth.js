@@ -50,7 +50,7 @@ router.post(
     body("name").notEmpty(),
     body("email").isEmail(),
     body("password").isLength({ min: 6 }),
-    body("role").isIn(["admin", "salesman"])
+    body("role").isIn(["admin", "salesman", "purchaser"])
   ],
   handleValidation,
   async (req, res, next) => {
@@ -102,8 +102,8 @@ router.patch(
       if (!targetUser) {
         return res.status(404).json({ message: "User not found." });
       }
-      if (targetUser.role === "admin") {
-        return res.status(400).json({ message: "Admin account status cannot be changed." });
+      if (String(id) === String(req.user._id)) {
+        return res.status(400).json({ message: "You cannot change your own account status." });
       }
       targetUser.isActive = isActive;
       targetUser.tokenVersion += 1;
@@ -122,12 +122,17 @@ router.patch(
   "/users/:id",
   protect,
   authorize("admin"),
-  [body("name").optional().notEmpty(), body("email").optional().isEmail(), body("password").optional().isLength({ min: 6 })],
+  [
+    body("name").optional().notEmpty(),
+    body("email").optional().isEmail(),
+    body("password").optional().isLength({ min: 6 }),
+    body("role").optional().isIn(["admin", "salesman", "purchaser"])
+  ],
   handleValidation,
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { name, email, password } = req.body;
+      const { name, email, password, role } = req.body;
       const targetUser = await User.findById(id);
       if (!targetUser) {
         return res.status(404).json({ message: "User not found." });
@@ -145,6 +150,12 @@ router.patch(
         targetUser.password = password;
         targetUser.tokenVersion += 1;
       }
+      if (role) {
+        if (String(id) === String(req.user._id) && role !== targetUser.role) {
+          return res.status(400).json({ message: "You cannot change your own role." });
+        }
+        targetUser.role = role;
+      }
 
       await targetUser.save();
       return res.json({
@@ -156,6 +167,22 @@ router.patch(
     }
   }
 );
+
+router.delete("/users/:id", protect, authorize("admin"), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (String(id) === String(req.user._id)) {
+      return res.status(400).json({ message: "You cannot delete your own account." });
+    }
+    const targetUser = await User.findByIdAndDelete(id);
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found." });
+    }
+    return res.json({ message: "User deleted successfully." });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.patch(
   "/me",

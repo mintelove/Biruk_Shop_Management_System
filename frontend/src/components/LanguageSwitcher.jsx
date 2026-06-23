@@ -15,7 +15,8 @@ export const LanguageSwitcher = () => {
 
   const isAdmin = user?.role === "admin";
   const isSalesman = user?.role === "salesman";
-  const showNotifications = isAdmin || isSalesman;
+  const isPurchaser = user?.role === "purchaser";
+  const showNotifications = isAdmin || isSalesman || isPurchaser;
 
   const fetchNotifications = async () => {
     if (!showNotifications) return;
@@ -244,7 +245,7 @@ export const LanguageSwitcher = () => {
                   {selectedNotification.transaction_id?._id || selectedNotification.transaction_id || "N/A"}
                 </code>
               </div>
-              {isAdmin && (
+              {(isAdmin || isPurchaser) && (
                 <div>
                   <strong>Submitted By:</strong>{" "}
                   {selectedNotification.transaction_id?.salesman_name || "Salesman"}

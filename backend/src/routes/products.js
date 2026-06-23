@@ -39,7 +39,7 @@ router.get("/", protect, async (req, res, next) => {
 router.post(
   "/",
   protect,
-  authorize("admin"),
+  authorize("admin", "purchaser"),
   [
     body("name").notEmpty(),
     body("purchasedPrice").optional().isFloat({ min: 0 }).withMessage("Purchased price must be a valid number ≥ 0"),
@@ -87,7 +87,7 @@ router.post(
 router.put(
   "/:id",
   protect,
-  authorize("admin"),
+  authorize("admin", "purchaser"),
   [
     body("name").optional().notEmpty(),
     body("purchasedPrice").optional().isFloat({ min: 0 }).withMessage("Purchased price must be a valid number ≥ 0"),
@@ -150,7 +150,7 @@ router.put(
   }
 );
 
-router.delete("/:id", protect, authorize("admin"), async (req, res, next) => {
+router.delete("/:id", protect, authorize("admin", "purchaser"), async (req, res, next) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
     if (!product) {

@@ -5,7 +5,7 @@ import { protect, authorize } from "../middleware/auth.js";
 const router = express.Router();
 
 // Get all notifications for the logged-in user (both salesman and admin)
-router.get("/", protect, authorize("salesman", "admin"), async (req, res, next) => {
+router.get("/", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
     const notifications = await Notification.find({ user_id: req.user._id })
       .populate("transaction_id")
@@ -18,7 +18,7 @@ router.get("/", protect, authorize("salesman", "admin"), async (req, res, next) 
 });
 
 // Mark a single notification as read
-router.patch("/:id/read", protect, authorize("salesman", "admin"), async (req, res, next) => {
+router.patch("/:id/read", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
     const notification = await Notification.findOneAndUpdate(
       { _id: req.params.id, user_id: req.user._id },

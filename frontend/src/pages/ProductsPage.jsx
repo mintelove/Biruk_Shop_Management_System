@@ -57,7 +57,7 @@ export const ProductsPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [newCatName, setNewCatName] = useState("");
   const [message, setMessage] = useState("");
-  const isAdmin = user?.role === "admin";
+  const canManageProducts = user?.role === "admin" || user?.role === "purchaser";
 
   const fetchProducts = useCallback(async () => {
     const res = await api.get("/products", {
@@ -226,7 +226,7 @@ export const ProductsPage = () => {
         )}
       </div>
 
-      {isAdmin && (
+      {canManageProducts && (
         <form className="card form-inline" onSubmit={onSubmit}>
           <input placeholder={t("products.name")} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input
@@ -274,7 +274,7 @@ export const ProductsPage = () => {
         </form>
       )}
 
-      {isAdmin && (
+      {canManageProducts && (
         <div className="card stack">
           <div className="row-between">
             <h4>{t("products.categoryManagement") || "Category Management"}</h4>
@@ -317,17 +317,17 @@ export const ProductsPage = () => {
             <tr>
               <th>{t("products.name")}</th>
               <th>{t("products.category")}</th>
-              {isAdmin && <th>Purchased Price</th>}
-              {isAdmin && <th>Min Selling Price</th>}
+              {canManageProducts && <th>Purchased Price</th>}
+              {canManageProducts && <th>Min Selling Price</th>}
               <th>{t("products.stockLevel")}</th>
               <th>{t("products.status")}</th>
-              {isAdmin ? <th>{t("products.actions")}</th> : null}
+              {canManageProducts ? <th>{t("products.actions")}</th> : null}
             </tr>
           </thead>
           <tbody>
             {filteredProducts.length === 0 ? (
               <tr>
-                <td colSpan={isAdmin ? 7 : 4} style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+                <td colSpan={canManageProducts ? 7 : 4} style={{ textAlign: 'center', padding: '2rem 1rem' }}>
                   <div className="category-filter-empty">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}>
                       <circle cx="11" cy="11" r="8" />
@@ -342,8 +342,8 @@ export const ProductsPage = () => {
                 <tr key={product._id}>
                   <td>{product.name}</td>
                   <td>{product.category}</td>
-                  {isAdmin && <td>{formatCurrency(product.purchasedPrice || 0)}</td>}
-                  {isAdmin && <td>{formatCurrency(product.minSellingPrice || 0)}</td>}
+                  {canManageProducts && <td>{formatCurrency(product.purchasedPrice || 0)}</td>}
+                  {canManageProducts && <td>{formatCurrency(product.minSellingPrice || 0)}</td>}
                   <td>
                     <StockBar
                       current={product.quantity}
@@ -359,7 +359,7 @@ export const ProductsPage = () => {
                       <span className="stock-status stock-status--healthy">{t("products.healthy")}</span>
                     )}
                   </td>
-                  {isAdmin ? (
+                  {canManageProducts ? (
                     <td>
                       <button className="btn secondary" onClick={() => onEdit(product)}>
                         {t("common.edit")}

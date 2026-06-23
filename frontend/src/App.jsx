@@ -38,14 +38,14 @@ function App() {
         <Route
           path="/"
           element={
-            <ProtectedRoute roles={["admin", "salesman"]}>
+            <ProtectedRoute roles={["admin", "salesman", "purchaser"]}>
               <Layout />
             </ProtectedRoute>
           }
         >
-          <Route index element={<DashboardPage />} />
+          <Route index element={user?.role === "purchaser" ? <Navigate to="/products" replace /> : <DashboardPage />} />
           <Route path="products" element={<ProductsPage />} />
-          <Route path="sales" element={<SalesPage />} />
+          <Route path="sales" element={user?.role === "purchaser" ? <Navigate to="/products" replace /> : <SalesPage />} />
           <Route path="purchases" element={<PurchasePage />} />
           <Route
             path="users"

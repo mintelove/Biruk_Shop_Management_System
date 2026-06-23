@@ -24,7 +24,7 @@ export const UsersPage = () => {
   const [profileForm, setProfileForm] = useState(initialProfileForm);
   const [users, setUsers] = useState([]);
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", email: "", password: "" });
+  const [editForm, setEditForm] = useState({ name: "", email: "", password: "", role: "" });
   const [message, setMessage] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
   const [tableMessage, setTableMessage] = useState("");
@@ -48,7 +48,8 @@ export const UsersPage = () => {
     }
   }, [user]);
 
-  const salesmanUsers = useMemo(() => users.filter((account) => account.role === "salesman"), [users]);
+  const salesmanUsers = useMemo(() => users.filter((account) => account.role !== "admin"), [users]);
+  const adminUsers = useMemo(() => users.filter((account) => account.role === "admin"), [users]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -81,23 +82,38 @@ export const UsersPage = () => {
 
   const onStartEdit = (targetUser) => {
     setEditingId(targetUser._id);
-    setEditForm({ name: targetUser.name, email: targetUser.email, password: "" });
+    setEditForm({ name: targetUser.name, email: targetUser.email, password: "", role: targetUser.role || "salesman" });
   };
 
   const onSaveEdit = async (targetUser) => {
     setTableMessage("");
     const payload = { name: editForm.name, email: editForm.email };
     if (editForm.password) payload.password = editForm.password;
-    await api.patch(`/auth/users/${targetUser._id}`, payload);
-    setTableMessage(t("users.updated"));
-    setEditingId(null);
-    setEditForm({ name: "", email: "", password: "" });
-    fetchUsers();
+    if (editForm.role) payload.role = editForm.role;
+    try {
+      await api.patch(`/auth/users/${targetUser._id}`, payload);
+      setTableMessage(t("users.updated"));
+      setEditingId(null);
+      setEditForm({ name: "", email: "", password: "", role: "" });
+      fetchUsers();
+    } catch (err) {
+      setTableMessage(err.response?.data?.message || t("users.failed"));
+    }
   };
 
+  const onDelete = async (targetUser) => {
+    if (!window.confirm(`Are you sure you want to delete the account "${targetUser.name}"? This action cannot be undone.`)) return;
+    try {
+      await api.delete(`/auth/users/${targetUser._id}`);
+      setTableMessage(t("users.deleted"));
+    } catch (err) {
+      const apiMessage = err.response?.data?.message;
+      setTableMessage(apiMessage || t("users.deleteFailed"));
+    }
+    fetchUsers();
+  };
   const onUpdateProfile = async (e) => {
     e.preventDefault();
-    setProfileMessage("");
     if (profileForm.password && profileForm.password !== profileForm.confirmPassword) {
       setProfileMessage(t("users.passwordMismatch"));
       return;
@@ -136,6 +152,7 @@ export const UsersPage = () => {
         />
         <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
           <option value="salesman">{t("common.salesman")}</option>
+          <option value="purchaser">{t("common.purchaser")}</option>
           <option value="admin">{t("common.admin")}</option>
         </select>
         <button className="btn" type="submit">
@@ -163,9 +180,16 @@ export const UsersPage = () => {
                 <tr key={account._id}>
                   <td>
                     {isEditing ? (
-                      <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                      <>
+                        <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                        <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}>
+                          <option value="salesman">{t("common.salesman")}</option>
+                          <option value="purchaser">{t("common.purchaser")}</option>
+                          <option value="admin">{t("common.admin")}</option>
+                        </select>
+                      </>
                     ) : (
-                      account.name
+                      account.name + (account.role ? " (" + (account.role === "purchaser" ? t("common.purchaser") : t("common.salesman")) + ")" : "")
                     )}
                   </td>
                   <td>
@@ -201,6 +225,7 @@ export const UsersPage = () => {
                         <button className={`btn ${account.isActive ? "btn-danger" : ""}`} onClick={() => onToggleStatus(account)}>
                           {account.isActive ? t("users.deactivate") : t("users.activate")}
                         </button>
+                        <button className="btn secondary" onClick={() => onDelete(account)}>{t("common.delete")}</button>
                       </>
                     )}
                   </td>
@@ -210,6 +235,72 @@ export const UsersPage = () => {
           </tbody>
         </table>
       </div>
+      <div className="card">
+        <h3>{t("users.adminAccounts")}</h3>
+        {tableMessage ? <p className="muted">{tableMessage}</p> : null}
+        <table>
+          <thead>
+            <tr>
+              <th>{t("products.name")}</th>
+              <th>{t("auth.email")}</th>
+              <th>{t("users.status")}</th>
+              <th>{t("products.actions")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {adminUsers.map((account) => {
+              const isEditing = editingId === account._id;
+              return (
+                <tr key={account._id}>
+                  <td>
+                    {isEditing ? (
+                      <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                    ) : (
+                      account.name + " (" + t("common.admin") + ")"
+                    )}
+                  </td>
+                  <td>
+                    {isEditing ? (
+                      <input value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                    ) : (
+                      account.email
+                    )}
+                  </td>
+                  <td>{account.isActive ? t("users.active") : t("users.inactive")}</td>
+                  <td>
+                    {isEditing ? (
+                      <>
+                        <input
+                          type="password"
+                          minLength={6}
+                          placeholder={t("users.newPasswordOptional")}
+                          value={editForm.password}
+                          onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                        />
+                        <button className="btn" onClick={() => onSaveEdit(account)}>{t("users.save")}</button>
+                        <button className="btn secondary" onClick={() => setEditingId(null)}>{t("users.cancel")}</button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="btn secondary" onClick={() => onStartEdit(account)}>{t("common.edit")}</button>
+                        {account._id !== user._id && (
+                          <>
+                            <button className={`btn ${account.isActive ? "btn-danger" : ""}`} onClick={() => onToggleStatus(account)}>
+                              {account.isActive ? t("users.deactivate") : t("users.activate")}
+                            </button>
+                            <button className="btn secondary" onClick={() => onDelete(account)}>{t("common.delete")}</button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
 
       <form className="card form" onSubmit={onUpdateProfile}>
         <h3>{t("users.adminAccount")}</h3>
