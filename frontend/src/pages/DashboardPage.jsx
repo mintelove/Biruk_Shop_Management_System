@@ -416,16 +416,17 @@ export const DashboardPage = () => {
                 initial="hidden"
                 animate="visible"
                 variants={cardVariants}
+                style={isCritical || isOutOfStock ? { borderColor: "var(--danger)", background: "rgba(220, 38, 38, 0.05)" } : undefined}
               >
                 {(isCritical || isOutOfStock) && (
-                  <span className="low-stock-priority-badge">
+                  <span className="low-stock-priority-badge" style={{ color: "var(--danger)", fontWeight: "bold" }}>
                     {isOutOfStock
                       ? t("dashboard.outOfStock")
                       : t("dashboard.criticalLeft")}
                   </span>
                 )}
                 <p className="low-stock-alert-name">{item.name}</p>
-                <p className="low-stock-alert-count">{item.quantity}</p>
+                <p className="low-stock-alert-count" style={isCritical || isOutOfStock ? { color: "var(--danger)" } : undefined}>{item.quantity}</p>
                 <button className="low-stock-restock-btn" type="button">
                   {t("dashboard.restockNow")}
                 </button>

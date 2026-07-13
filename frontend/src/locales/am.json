@@ -118,6 +118,7 @@
     "status": "ሁኔታ",
     "actions": "እርምጃዎች",
     "lowStock": "ዝቅተኛ እቃ",
+    "criticalStock": "አሳሳቢ ደረጃ",
     "healthy": "በእቃ ላይ",
     "initialStock": "ዋና ክምችት",
     "sold": "የተሸጠ",

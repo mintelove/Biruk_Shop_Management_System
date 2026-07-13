@@ -16,20 +16,17 @@ const defaultForm = {
 
 const StockBar = ({ current, initial, threshold, t }) => {
   const effectiveInitial = initial || current || 1;
-  const sold = Math.max(0, effectiveInitial - current);
   const pct = Math.min(100, Math.round((current / effectiveInitial) * 100));
-  const isLow = current <= (threshold ?? 10);
-  const isWarning = !isLow && pct <= 35;
 
   let barClass = "stock-bar-fill stock-bar-fill--healthy";
   let statusClass = "stock-status stock-status--healthy";
   let statusText = t("products.healthy");
 
-  if (isLow) {
+  if (pct <= 5) {
     barClass = "stock-bar-fill stock-bar-fill--danger";
     statusClass = "stock-status stock-status--danger";
-    statusText = t("products.lowStock");
-  } else if (isWarning) {
+    statusText = t("products.criticalStock");
+  } else if (pct < 25) {
     barClass = "stock-bar-fill stock-bar-fill--warning";
     statusClass = "stock-status stock-status--warning";
     statusText = t("products.lowStock");
@@ -37,7 +34,7 @@ const StockBar = ({ current, initial, threshold, t }) => {
 
   return (
     <div className="stock-display">
-      <span className="stock-fraction">{sold} / {effectiveInitial}</span>
+      <span className="stock-fraction">{current} / {effectiveInitial}</span>
       <div className="stock-bar">
         <div className={barClass} style={{ width: `${pct}%` }} />
       </div>
@@ -57,7 +54,11 @@ export const ProductsPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [newCatName, setNewCatName] = useState("");
   const [message, setMessage] = useState("");
-  const canManageProducts = user?.role === "admin" || user?.role === "purchaser";
+  const isAdmin = user?.role === "admin";
+  const isPurchaser = user?.role === "purchaser";
+  const isSalesman = user?.role === "salesman";
+  const canManageProducts = isAdmin || isPurchaser;
+  const canAddOrEdit = isAdmin || isPurchaser || isSalesman;
 
   const fetchProducts = useCallback(async () => {
     const res = await api.get("/products", {
@@ -226,15 +227,16 @@ export const ProductsPage = () => {
         )}
       </div>
 
-      {canManageProducts && (
+      {canAddOrEdit && (
         <form className="card form-inline" onSubmit={onSubmit}>
-          <input placeholder={t("products.name")} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <input placeholder={t("products.name")} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={isSalesman && !!editingId} />
           <input
             type="number"
             step="0.01"
             placeholder="Purchased Price (Br)"
             value={form.purchasedPrice}
             onChange={(e) => setForm({ ...form, purchasedPrice: e.target.value })}
+            disabled={isSalesman && !!editingId}
           />
           <input
             type="number"
@@ -242,6 +244,7 @@ export const ProductsPage = () => {
             placeholder="Min Selling Price (Br)"
             value={form.minSellingPrice}
             onChange={(e) => setForm({ ...form, minSellingPrice: e.target.value })}
+            disabled={isSalesman && !!editingId}
           />
 
           <input
@@ -255,6 +258,7 @@ export const ProductsPage = () => {
             required
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
+            disabled={isSalesman && !!editingId}
           >
             <option value="">-- {t("products.category")} --</option>
             {categories.map((c) => (
@@ -266,6 +270,7 @@ export const ProductsPage = () => {
             placeholder={t("products.lowStockThreshold")}
             value={form.lowStockThreshold}
             onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
+            disabled={isSalesman && !!editingId}
           />
           <button className="btn" type="submit">
             {editingId ? t("common.updateProduct") : t("common.addProduct")}
@@ -317,17 +322,17 @@ export const ProductsPage = () => {
             <tr>
               <th>{t("products.name")}</th>
               <th>{t("products.category")}</th>
-              {canManageProducts && <th>Purchased Price</th>}
-              {canManageProducts && <th>Min Selling Price</th>}
+              <th>Purchased Price</th>
+              <th>Min Selling Price</th>
               <th>{t("products.stockLevel")}</th>
               <th>{t("products.status")}</th>
-              {canManageProducts ? <th>{t("products.actions")}</th> : null}
+              <th>{t("products.actions")}</th>
             </tr>
           </thead>
           <tbody>
             {filteredProducts.length === 0 ? (
               <tr>
-                <td colSpan={canManageProducts ? 7 : 4} style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '2rem 1rem' }}>
                   <div className="category-filter-empty">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}>
                       <circle cx="11" cy="11" r="8" />
@@ -342,8 +347,8 @@ export const ProductsPage = () => {
                 <tr key={product._id}>
                   <td>{product.name}</td>
                   <td>{product.category}</td>
-                  {canManageProducts && <td>{formatCurrency(product.purchasedPrice || 0)}</td>}
-                  {canManageProducts && <td>{formatCurrency(product.minSellingPrice || 0)}</td>}
+                  <td>{formatCurrency(product.purchasedPrice || 0)}</td>
+                  <td>{formatCurrency(product.minSellingPrice || 0)}</td>
                   <td>
                     <StockBar
                       current={product.quantity}
@@ -353,22 +358,27 @@ export const ProductsPage = () => {
                     />
                   </td>
                   <td>
-                    {product.quantity <= (product.lowStockThreshold ?? 10) ? (
-                      <span className="stock-status stock-status--danger">{t("products.lowStock")}</span>
-                    ) : (
-                      <span className="stock-status stock-status--healthy">{t("products.healthy")}</span>
-                    )}
+                    {(() => {
+                      const effInitial = product.initialStock || product.quantity || 1;
+                      const remainPct = Math.min(100, Math.round((product.quantity / effInitial) * 100));
+                      if (remainPct <= 5) {
+                        return <span className="stock-status stock-status--danger">{t("products.criticalStock")}</span>;
+                      } else if (remainPct < 25) {
+                        return <span className="stock-status stock-status--warning">{t("products.lowStock")}</span>;
+                      }
+                      return <span className="stock-status stock-status--healthy">{t("products.healthy")}</span>;
+                    })()}
                   </td>
-                  {canManageProducts ? (
-                    <td>
-                      <button className="btn secondary" onClick={() => onEdit(product)}>
-                        {t("common.edit")}
-                      </button>
+                  <td>
+                    <button className="btn secondary" onClick={() => onEdit(product)}>
+                      {t("common.edit")}
+                    </button>
+                    {canManageProducts && (
                       <button className="btn btn-danger" onClick={() => onDelete(product._id)} style={{ marginLeft: '0.4rem' }}>
                         {t("common.delete")}
                       </button>
-                    </td>
-                  ) : null}
+                    )}
+                  </td>
                 </tr>
               ))
             )}

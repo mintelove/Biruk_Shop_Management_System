@@ -118,6 +118,7 @@
     "status": "Status",
     "actions": "Actions",
     "lowStock": "Low Stock",
+    "criticalStock": "Critical Stock",
     "healthy": "In Stock",
     "initialStock": "Initial Stock",
     "sold": "Sold",
