@@ -35,6 +35,7 @@ export const PurchasePage = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [search, setSearch] = useState("");
+  const [vatFilter, setVatFilter] = useState("all");
 
   // Edit modal (Salesman direct edit or Admin edit)
   const [editTx, setEditTx] = useState(null);
@@ -63,11 +64,12 @@ export const PurchasePage = () => {
     if (dateFilter) params.date = dateFilter;
     if (startDate) params.startDate = startDate;
     if (endDate) params.endDate = endDate;
+    params.vatFilter = vatFilter;
     try {
       const res = await api.get("/sales/purchases", { params });
       setData(res.data);
     } catch { /* silent */ }
-  }, [dateFilter, startDate, endDate]);
+  }, [dateFilter, startDate, endDate, vatFilter]);
 
   const fetchEditRequests = useCallback(async () => {
     if (!isAdmin && user?.role !== "purchaser") return;
@@ -204,6 +206,7 @@ export const PurchasePage = () => {
     if (dateFilter) params.set("date", dateFilter);
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
+    params.set("vatFilter", vatFilter);
     const token = localStorage.getItem("token");
     const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
     const url = `${baseUrl}/sales/purchases/export/${format}?${params.toString()}`;
@@ -511,9 +514,21 @@ export const PurchasePage = () => {
           <label>{t("sales.endDate")}</label>
           <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setDateFilter(""); }} />
         </div>
+        <div className="csv-export-group">
+          <label>{t("sales.vatFilter") || "VAT Filter"}</label>
+          <select
+            value={vatFilter}
+            onChange={(e) => setVatFilter(e.target.value)}
+            style={{ padding: "0.4rem", borderRadius: "8px", border: "1px solid var(--input-border)", minWidth: "120px", background: "var(--card-bg, #fff)", color: "var(--text, #000)" }}
+          >
+            <option value="all">{t("sales.all")}</option>
+            <option value="without">{t("sales.withoutVat")}</option>
+            <option value="with">{t("sales.withVat")}</option>
+          </select>
+        </div>
         <div className="csv-export-group" style={{ alignSelf: "flex-end" }}>
           <button type="button" className="btn btn-secondary" style={{ padding: "0.5rem 1rem", fontSize: "0.85rem", background: "#64748b", color: "#fff", borderRadius: "8px", border: "none", cursor: "pointer" }}
-            onClick={() => { setDateFilter(""); setStartDate(""); setEndDate(""); }}>
+            onClick={() => { setDateFilter(""); setStartDate(""); setEndDate(""); setVatFilter("all"); }}>
             {t("dashboard.resetFilter")}
           </button>
         </div>

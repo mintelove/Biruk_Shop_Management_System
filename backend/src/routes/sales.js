@@ -343,10 +343,18 @@ router.get("/export-csv", protect, async (req, res, next) => {
 // Shared helper: build profit data from sales (role-based)
 const ACTIVE_LIKE_STATUSES = ["active", "pending_return", "return_rejected"];
 
-async function buildProfitData(query, user) {
+async function buildProfitData(query, user, vatFilter = "all") {
   // Role-based filtering: salesman sees only own transactions
   if (user && user.role === "salesman") {
     query.salesman_id = user._id;
+  }
+
+  if (vatFilter === "with") {
+    query.vatApplied = true;
+  } else if (vatFilter === "without") {
+    query.vatApplied = { $ne: true };
+  } else {
+    // "all": do not add vatApplied filter to query
   }
 
   const sales = await Sale.find(query)
@@ -432,11 +440,11 @@ async function buildProfitData(query, user) {
   return { transactions, byProduct, totalProfit, totalItemsSold };
 }
 
-// Profit CSV Export
 router.get("/purchases/export/csv", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
+    const { vatFilter = "all" } = req.query;
     const dateFilter = buildDateFilter(req.query);
-    const profitData = await buildProfitData({ ...dateFilter }, req.user);
+    const profitData = await buildProfitData({ ...dateFilter }, req.user, vatFilter);
     const dateLabel = getDateLabel(req.query);
     const shopName = "Yoya Kids Collection By Meski";
 
@@ -484,8 +492,9 @@ router.get("/purchases/export/csv", protect, authorize("salesman", "admin", "pur
 // Profit PDF Export
 router.get("/purchases/export/pdf", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
+    const { vatFilter = "all" } = req.query;
     const dateFilter = buildDateFilter(req.query);
-    const profitData = await buildProfitData({ ...dateFilter }, req.user);
+    const profitData = await buildProfitData({ ...dateFilter }, req.user, vatFilter);
     const dateLabel = getDateLabel(req.query);
     const shopName = "Sunlight Electric";
 
@@ -679,8 +688,9 @@ router.get("/purchases/export/pdf", protect, authorize("salesman", "admin", "pur
 // Profit JSON endpoint (main data for frontend)
 router.get("/purchases", protect, authorize("salesman", "admin", "purchaser"), async (req, res, next) => {
   try {
+    const { vatFilter = "all" } = req.query;
     const dateFilter = buildDateFilter(req.query);
-    const profitData = await buildProfitData({ ...dateFilter }, req.user);
+    const profitData = await buildProfitData({ ...dateFilter }, req.user, vatFilter);
     return res.json(profitData);
   } catch (error) {
     return next(error);
