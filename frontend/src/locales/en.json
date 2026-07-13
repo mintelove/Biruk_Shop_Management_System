@@ -190,7 +190,9 @@
     "vatOption": "VAT Option",
     "vatAmountLabel": "VAT Amount",
     "totalPriceLabel": "Total Price",
-    "vatType": "VAT Type"
+    "vatType": "VAT Type",
+    "all": "All",
+    "vatFilter": "VAT Filter"
   },
   "users": {
     "title": "Create User",

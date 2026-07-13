@@ -16,7 +16,15 @@ router.get("/", protect, async (req, res, next) => {
   try {
     const roleQuery = req.user.role === "admin" ? {} : { salesman_id: req.user._id };
     const dateFilter = buildDateFilter(req.query);
-    const query = { ...roleQuery, ...dateFilter };
+    let vatQuery = {};
+    if (req.query.vatFilter === "with") {
+      vatQuery = { vatApplied: true };
+    } else if (req.query.vatFilter === "all") {
+      vatQuery = {};
+    } else {
+      vatQuery = { vatApplied: { $ne: true } };
+    }
+    const query = { ...roleQuery, ...dateFilter, ...vatQuery };
 
     const sales = await Sale.find(query).sort({ createdAt: -1 }).populate("salesman_id", "name email");
     const normalizedSales = sales.map((sale) => {
@@ -59,7 +67,15 @@ router.get("/export/csv", protect, async (req, res, next) => {
   try {
     const roleQuery = req.user.role === "admin" ? {} : { salesman_id: req.user._id };
     const dateFilter = buildDateFilter(req.query);
-    const query = { ...roleQuery, ...dateFilter };
+    let vatQuery = {};
+    if (req.query.vatFilter === "with") {
+      vatQuery = { vatApplied: true };
+    } else if (req.query.vatFilter === "all") {
+      vatQuery = {};
+    } else {
+      vatQuery = { vatApplied: { $ne: true } };
+    }
+    const query = { ...roleQuery, ...dateFilter, ...vatQuery };
 
     const sales = await Sale.find(query)
       .sort({ createdAt: -1 })
@@ -102,7 +118,15 @@ router.get("/export/pdf", protect, async (req, res, next) => {
   try {
     const roleQuery = req.user.role === "admin" ? {} : { salesman_id: req.user._id };
     const dateFilter = buildDateFilter(req.query);
-    const query = { ...roleQuery, ...dateFilter };
+    let vatQuery = {};
+    if (req.query.vatFilter === "with") {
+      vatQuery = { vatApplied: true };
+    } else if (req.query.vatFilter === "all") {
+      vatQuery = {};
+    } else {
+      vatQuery = { vatApplied: { $ne: true } };
+    }
+    const query = { ...roleQuery, ...dateFilter, ...vatQuery };
 
     const sales = await Sale.find(query)
       .sort({ createdAt: -1 })
@@ -279,6 +303,14 @@ router.get("/export-csv", protect, async (req, res, next) => {
         endDate.setHours(23, 59, 59, 999);
         query.createdAt.$lte = endDate;
       }
+    }
+
+    if (req.query.vatFilter === "with") {
+      query.vatApplied = true;
+    } else if (req.query.vatFilter === "all") {
+      // do not filter by vatApplied
+    } else {
+      query.vatApplied = { $ne: true };
     }
 
     const sales = await Sale.find(query)

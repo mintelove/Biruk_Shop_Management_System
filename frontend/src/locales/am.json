@@ -190,7 +190,9 @@
     "vatOption": "የቫት አማራጭ",
     "vatAmountLabel": "የቫት መጠን",
     "totalPriceLabel": "ጠቅላላ ዋጋ",
-    "vatType": "የቫት ዓይነት"
+    "vatType": "የቫት ዓይነት",
+    "all": "ሁሉም",
+    "vatFilter": "የቫት ማጣሪያ"
   },
   "users": {
     "title": "ተጠቃሚ ፍጠር",

@@ -56,6 +56,7 @@ export const SalesPage = () => {
   const [saleSuccess, setSaleSuccess] = useState(false);
   const successTimer = useRef(null);
   const [vatOption, setVatOption] = useState("without");
+  const [vatFilter, setVatFilter] = useState("without");
 
   // Computed VAT values (reactive to selling price, quantity, and VAT option)
   const vatAmount = useMemo(() => {
@@ -90,6 +91,7 @@ export const SalesPage = () => {
     if (dateFilter) params.date = dateFilter;
     if (startDate) params.startDate = startDate;
     if (endDate) params.endDate = endDate;
+    params.vatFilter = vatFilter;
 
     // Fetch sales history and categories list
     const [salesRes, categoriesRes] = await Promise.all([
@@ -118,7 +120,7 @@ export const SalesPage = () => {
     }
     const productsRes = await api.get("/products", { params: prodParams });
     setProducts(productsRes.data || []);
-  }, [mode, selectedCategory, dateFilter, startDate, endDate]);
+  }, [mode, selectedCategory, dateFilter, startDate, endDate, vatFilter]);
 
   useEffect(() => {
     fetchData();
@@ -235,6 +237,7 @@ export const SalesPage = () => {
     if (dateFilter) params.set("date", dateFilter);
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
+    params.set("vatFilter", vatFilter);
 
     const token = localStorage.getItem("token");
     const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -433,12 +436,24 @@ export const SalesPage = () => {
           <label>{t("sales.endDate")}</label>
           <input type="date" value={endDate} onChange={(e) => { setDateFilter(""); setStartDate(""); }} />
         </div>
+        <div className="csv-export-group">
+          <label>{t("sales.vatFilter") || "VAT Filter"}</label>
+          <select
+            value={vatFilter}
+            onChange={(e) => setVatFilter(e.target.value)}
+            style={{ padding: "0.4rem", borderRadius: "8px", border: "1px solid var(--input-border)", minWidth: "120px", background: "var(--card-bg, #fff)", color: "var(--text, #000)" }}
+          >
+            <option value="without">{t("sales.withoutVat")}</option>
+            <option value="with">{t("sales.withVat")}</option>
+            <option value="all">{t("sales.all")}</option>
+          </select>
+        </div>
         <div className="csv-export-group" style={{ alignSelf: "flex-end" }}>
           <button
             type="button"
             className="btn btn-secondary"
             style={{ padding: "0.5rem 1rem", fontSize: "0.85rem", background: "#64748b", color: "#fff", borderRadius: "8px", border: "none", cursor: "pointer" }}
-            onClick={() => { setDateFilter(""); setStartDate(""); setEndDate(""); }}
+            onClick={() => { setDateFilter(""); setStartDate(""); setEndDate(""); setVatFilter("without"); }}
           >
             {t("dashboard.resetFilter") || "Reset"}
           </button>
