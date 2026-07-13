@@ -184,7 +184,13 @@
     "newPrice": "አዲስ ዋጋ",
     "requestType": "የጥያቄ ዓይነት",
     "status": "ሁኔታ",
-    "alreadyEdited": "ይህን ግብይት አንድ ጊዜ አስተካክለዋል።"
+    "alreadyEdited": "ይህን ግብይት አንድ ጊዜ አስተካክለዋል።",
+    "withVat": "ከቫት ጋር",
+    "withoutVat": "ያለ ቫት",
+    "vatOption": "የቫት አማራጭ",
+    "vatAmountLabel": "የቫት መጠን",
+    "totalPriceLabel": "ጠቅላላ ዋጋ",
+    "vatType": "የቫት ዓይነት"
   },
   "users": {
     "title": "ተጠቃሚ ፍጠር",

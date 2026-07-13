@@ -184,7 +184,13 @@
     "newPrice": "New Price",
     "requestType": "Request Type",
     "status": "Status",
-    "alreadyEdited": "You have already edited this transaction once."
+    "alreadyEdited": "You have already edited this transaction once.",
+    "withVat": "With VAT",
+    "withoutVat": "Without VAT",
+    "vatOption": "VAT Option",
+    "vatAmountLabel": "VAT Amount",
+    "totalPriceLabel": "Total Price",
+    "vatType": "VAT Type"
   },
   "users": {
     "title": "Create User",

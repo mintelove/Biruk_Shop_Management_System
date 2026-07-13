@@ -55,6 +55,23 @@ export const SalesPage = () => {
   const [summary, setSummary] = useState({ totalItemsSold: 0, totalSalesAmount: 0, totalTransactions: 0 });
   const [saleSuccess, setSaleSuccess] = useState(false);
   const successTimer = useRef(null);
+  const [vatOption, setVatOption] = useState("without");
+
+  // Computed VAT values (reactive to selling price, quantity, and VAT option)
+  const vatAmount = useMemo(() => {
+    if (vatOption !== "with") return 0;
+    const price = Number(form.sellingPrice) || 0;
+    const qty = Number(form.quantity) || 0;
+    return Number((price * 0.15 * qty).toFixed(2));
+  }, [vatOption, form.sellingPrice, form.quantity]);
+
+  const totalPriceWithVat = useMemo(() => {
+    const price = Number(form.sellingPrice) || 0;
+    const qty = Number(form.quantity) || 0;
+    const base = Number((price * qty).toFixed(2));
+    if (vatOption !== "with") return base;
+    return Number((base + vatAmount).toFixed(2));
+  }, [vatOption, form.sellingPrice, form.quantity, vatAmount]);
 
   // Derive the selected product to show original price reference
   const selectedProduct = useMemo(() => {
@@ -182,9 +199,11 @@ export const SalesPage = () => {
       await api.post("/sales", {
         productId: form.productId,
         quantity: Number(form.quantity),
-        sellingPrice: numPrice
+        sellingPrice: numPrice,
+        vatApplied: vatOption === "with"
       });
       setForm((prev) => ({ ...prev, quantity: 1, sellingPrice: "" }));
+      setVatOption("without");
       fetchData();
 
       // Trigger success state for 3 seconds
@@ -356,6 +375,43 @@ export const SalesPage = () => {
           )}
         </div>
 
+        {/* VAT Option Dropdown */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", minWidth: "130px" }}>
+          <select
+            value={vatOption}
+            onChange={(e) => setVatOption(e.target.value)}
+            style={{ width: "100%", fontWeight: 600 }}
+          >
+            <option value="without">{t("sales.withoutVat")}</option>
+            <option value="with">{t("sales.withVat")}</option>
+          </select>
+          <span style={{ fontSize: "0.72rem", color: "var(--text-muted, #94a3b8)" }}>
+            {t("sales.vatOption")}
+          </span>
+        </div>
+
+        {/* VAT Amount & Total Price (visible only when With VAT is selected) */}
+        {vatOption === "with" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", minWidth: "140px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted, #64748b)", whiteSpace: "nowrap" }}>
+                {t("sales.vatAmountLabel")}:
+              </span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--accent, #f59e0b)" }}>
+                {formatCurrency(vatAmount)}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted, #64748b)", whiteSpace: "nowrap" }}>
+                {t("sales.totalPriceLabel")}:
+              </span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--primary, #22c55e)" }}>
+                {formatCurrency(totalPriceWithVat)}
+              </span>
+            </div>
+          </div>
+        )}
+
         <button className="btn" type="submit" disabled={saleSuccess || filteredProducts.length === 0} style={{ padding: "0.7rem 1.5rem" }}>
           {t("sales.completeSale")}
         </button>
@@ -434,6 +490,8 @@ export const SalesPage = () => {
               <th>{t("sales.product")}</th>
               <th>{t("sales.qty")}</th>
               <th>{t("sales.unitPrice")}</th>
+              <th>{t("sales.vatType")}</th>
+              <th>{t("sales.vatAmountLabel")}</th>
               <th>{t("sales.total")}</th>
               <th>{t("sales.salesman")}</th>
             </tr>
@@ -441,7 +499,7 @@ export const SalesPage = () => {
           <tbody>
             {filteredSales.length === 0 ? (
               <tr>
-                <td colSpan={6} className="no-results">{t("sales.noResults")}</td>
+                <td colSpan={8} className="no-results">{t("sales.noResults")}</td>
               </tr>
             ) : (
               filteredSales.map((sale) => (
@@ -450,7 +508,20 @@ export const SalesPage = () => {
                   <td>{sale.product_name}</td>
                   <td>{sale.quantity}</td>
                   <td>{formatCurrency(sale.unit_price)}</td>
-                  <td>{formatCurrency(sale.total_price)}</td>
+                  <td>
+                    <span style={{
+                      display: "inline-block", padding: "0.15rem 0.45rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
+                      background: sale.vatApplied ? "rgba(245,158,11,0.12)" : "rgba(100,116,139,0.1)",
+                      color: sale.vatApplied ? "#d97706" : "#64748b",
+                      textTransform: "uppercase"
+                    }}>
+                      {sale.vatApplied ? t("sales.withVat") : t("sales.withoutVat")}
+                    </span>
+                  </td>
+                  <td style={{ fontWeight: sale.vatApplied ? 700 : 400 }}>
+                    {sale.vatApplied ? formatCurrency(sale.vat_amount || 0) : "—"}
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{formatCurrency(sale.total_price)}</td>
                   <td>{sale.salesman_id?.name || t("common.na")}</td>
                 </tr>
               ))

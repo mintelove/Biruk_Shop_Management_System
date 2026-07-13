@@ -20,7 +20,9 @@ const saleSchema = new mongoose.Schema(
     returned: { type: Boolean, default: false },
     returnedByAdmin: { type: Boolean, default: false },
     returnedAt: { type: Date },
-    returnedBy: { type: String, default: "" }
+    returnedBy: { type: String, default: "" },
+    vatApplied: { type: Boolean, default: false },
+    vat_amount: { type: Number, default: 0, min: 0 }
   },
   { timestamps: true }
 );

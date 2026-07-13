@@ -76,15 +76,17 @@ router.get("/export/csv", protect, async (req, res, next) => {
       ""
     ];
 
-    const header = "Date,Product,Quantity,Unit Price,Total Price,Currency,Salesman";
+    const header = "Date,Product,Quantity,Unit Price,VAT Type,VAT Amount,Total Price,Currency,Salesman";
     const rows = sales.map((sale) => {
       const sourceCurrency = getRecordCurrency(sale.currency);
       const unitPrice = sourceCurrency === APP_CURRENCY ? sale.unit_price : toAppCurrency(sale.unit_price, sourceCurrency);
       const totalPrice = sourceCurrency === APP_CURRENCY ? sale.total_price : toAppCurrency(sale.total_price, sourceCurrency);
+      const vatType = sale.vatApplied ? "With VAT" : "Without VAT";
+      const vatAmount = sale.vatApplied ? (sale.vat_amount || 0) : 0;
       const date = new Date(sale.createdAt).toISOString().slice(0, 10);
       const productName = `"${(sale.product_name || "").replace(/"/g, '""')}"`;
       const salesman = `"${(sale.salesman_id?.name || "N/A").replace(/"/g, '""')}"`;
-      return `${date},${productName},${sale.quantity},${unitPrice.toFixed(2)},${totalPrice.toFixed(2)},${APP_CURRENCY},${salesman}`;
+      return `${date},${productName},${sale.quantity},${unitPrice.toFixed(2)},${vatType},${vatAmount.toFixed(2)},${totalPrice.toFixed(2)},${APP_CURRENCY},${salesman}`;
     });
 
     const csv = [...metadata, header, ...rows].join("\n");
@@ -194,14 +196,16 @@ router.get("/export/pdf", protect, async (req, res, next) => {
     y += 22;
 
     const tCols = [
-      { x: LEFT,       w: 60,  align: "left" },   // Date
-      { x: LEFT + 60,  w: 160, align: "left" },   // Product
-      { x: LEFT + 220, w: 30,  align: "center" }, // Qty
-      { x: LEFT + 250, w: 70,  align: "right" },  // Price
-      { x: LEFT + 320, w: 75,  align: "right" },  // Total
-      { x: LEFT + 395, w: 137, align: "right" }   // Salesman
+      { x: LEFT,       w: 55,  align: "left" },   // Date
+      { x: LEFT + 55,  w: 120, align: "left" },   // Product
+      { x: LEFT + 175, w: 25,  align: "center" }, // Qty
+      { x: LEFT + 200, w: 60,  align: "right" },  // Price
+      { x: LEFT + 260, w: 35,  align: "center" }, // VAT
+      { x: LEFT + 295, w: 55,  align: "right" },  // VAT Amt
+      { x: LEFT + 350, w: 65,  align: "right" },  // Total
+      { x: LEFT + 415, w: 117, align: "right" }   // Salesman
     ];
-    const tHeaders = ["Date", "Product", "Qty", "Price", "Total", "Salesman"];
+    const tHeaders = ["Date", "Product", "Qty", "Price", "VAT", "VAT Amt", "Total", "Salesman"];
 
     const drawTHeader = (atY) => {
       doc.rect(LEFT, atY, PAGE_W, 25).fill("#be123c"); // Crimson header
@@ -217,6 +221,8 @@ router.get("/export/pdf", protect, async (req, res, next) => {
         sale.product_name || "Unknown",
         sale.quantity.toString(),
         sale.unit_price.toFixed(2),
+        sale.vatApplied ? "Yes" : "No",
+        sale.vatApplied ? (sale.vat_amount || 0).toFixed(2) : "0.00",
         sale.total_price.toFixed(2),
         sale.salesman_id?.name || "N/A"
       ];
@@ -279,15 +285,17 @@ router.get("/export-csv", protect, async (req, res, next) => {
       .sort({ createdAt: -1 })
       .populate("salesman_id", "name email");
 
-    const header = "Date,Product,Quantity,Unit Price,Total Price,Currency,Salesman";
+    const header = "Date,Product,Quantity,Unit Price,VAT Type,VAT Amount,Total Price,Currency,Salesman";
     const rows = sales.map((sale) => {
       const sourceCurrency = getRecordCurrency(sale.currency);
       const unitPrice = sourceCurrency === APP_CURRENCY ? sale.unit_price : toAppCurrency(sale.unit_price, sourceCurrency);
       const totalPrice = sourceCurrency === APP_CURRENCY ? sale.total_price : toAppCurrency(sale.total_price, sourceCurrency);
+      const vatType = sale.vatApplied ? "With VAT" : "Without VAT";
+      const vatAmount = sale.vatApplied ? (sale.vat_amount || 0) : 0;
       const date = new Date(sale.createdAt).toISOString().slice(0, 10);
       const productName = `"${(sale.product_name || "").replace(/"/g, '""')}"`;
       const salesman = `"${(sale.salesman_id?.name || "N/A").replace(/"/g, '""')}"`;
-      return `${date},${productName},${sale.quantity},${unitPrice.toFixed(2)},${totalPrice.toFixed(2)},${APP_CURRENCY},${salesman}`;
+      return `${date},${productName},${sale.quantity},${unitPrice.toFixed(2)},${vatType},${vatAmount.toFixed(2)},${totalPrice.toFixed(2)},${APP_CURRENCY},${salesman}`;
     });
 
     const csv = [header, ...rows].join("\n");
@@ -320,10 +328,14 @@ async function buildProfitData(query, user) {
     const sellingPrice = s.unit_price || 0;
     const qty = s.quantity || 0;
     const txStatus = s.status || "active";
+    const isVat = !!s.vatApplied;
+    const vatAmt = s.vat_amount || 0;
     // Calculate profit for active-like transactions
+    // For VAT sales: profit uses total_price (VAT-inclusive) minus purchased cost
     const isActiveLike = ACTIVE_LIKE_STATUSES.includes(txStatus);
+    const effectiveSellingPrice = isVat ? sellingPrice * 1.15 : sellingPrice;
     const profit = isActiveLike
-      ? Number(((sellingPrice - purchasedPrice) * qty).toFixed(2))
+      ? Number(((effectiveSellingPrice - purchasedPrice) * qty).toFixed(2))
       : 0;
 
     // Convert minSellingPrice to app currency
@@ -356,7 +368,9 @@ async function buildProfitData(query, user) {
       returnedByAdmin: !!s.returnedByAdmin,
       returnedAt: s.returnedAt || null,
       returnedBy: s.returnedBy || "",
-      minSellingPrice
+      minSellingPrice,
+      vatApplied: isVat,
+      vat_amount: vatAmt
     };
   });
 
@@ -410,12 +424,14 @@ router.get("/purchases/export/csv", protect, authorize("salesman", "admin", "pur
     );
 
     const txHeader = "--- All Transactions ---";
-    const txColHeader = "Date,Product Name,Quantity,Selling Price,Purchased Price,Profit,Salesman";
+    const txColHeader = "Date,Product Name,Quantity,Selling Price,VAT Type,VAT Amount,Purchased Price,Profit,Salesman";
     const txRows = profitData.transactions.map((tx) => {
       const date = new Date(tx.date).toISOString().slice(0, 10);
       const productName = `"${(tx.product_name || "").replace(/"/g, '""')}"`;
       const salesman = `"${(tx.salesman || "N/A").replace(/"/g, '""')}"`;
-      return `${date},${productName},${tx.quantity},${tx.sellingPrice.toFixed(2)},${tx.purchasedPrice.toFixed(2)},${tx.profit.toFixed(2)},${salesman}`;
+      const vatType = tx.vatApplied ? "With VAT" : "Without VAT";
+      const vatAmount = tx.vatApplied ? (tx.vat_amount || 0).toFixed(2) : "0.00";
+      return `${date},${productName},${tx.quantity},${tx.sellingPrice.toFixed(2)},${vatType},${vatAmount},${tx.purchasedPrice.toFixed(2)},${tx.profit.toFixed(2)},${salesman}`;
     });
 
     const csv = [
@@ -567,15 +583,17 @@ router.get("/purchases/export/pdf", protect, authorize("salesman", "admin", "pur
     y += 22;
 
     const tCols = [
-      { x: LEFT,       w: 60,  align: "left" },   // Date
-      { x: LEFT + 60,  w: 140, align: "left" },   // Product
-      { x: LEFT + 200, w: 30,  align: "center" }, // Qty
-      { x: LEFT + 230, w: 65,  align: "right" },  // Sell
-      { x: LEFT + 295, w: 65,  align: "right" },  // Purch
-      { x: LEFT + 360, w: 65,  align: "right" },  // Profit
-      { x: LEFT + 425, w: 127, align: "right" }   // Salesman
+      { x: LEFT,       w: 55,  align: "left" },   // Date
+      { x: LEFT + 55,  w: 110, align: "left" },   // Product
+      { x: LEFT + 165, w: 25,  align: "center" }, // Qty
+      { x: LEFT + 190, w: 55,  align: "right" },  // Sell
+      { x: LEFT + 245, w: 30,  align: "center" }, // VAT
+      { x: LEFT + 275, w: 48,  align: "right" },  // VAT Amt
+      { x: LEFT + 323, w: 55,  align: "right" },  // Purch
+      { x: LEFT + 378, w: 55,  align: "right" },  // Profit
+      { x: LEFT + 433, w: 119, align: "right" }   // Salesman
     ];
-    const tHeaders = ["Date", "Product", "Qty", "Sell", "Purch", "Profit", "Salesman"];
+    const tHeaders = ["Date", "Product", "Qty", "Sell", "VAT", "VAT Amt", "Purch", "Profit", "Salesman"];
 
     const drawTHeader = (atY) => {
       doc.rect(LEFT, atY, PAGE_W, 25).fill("#1e293b");
@@ -591,6 +609,8 @@ router.get("/purchases/export/pdf", protect, authorize("salesman", "admin", "pur
         tx.product_name,
         tx.quantity.toString(),
         tx.sellingPrice.toFixed(2),
+        tx.vatApplied ? "Yes" : "No",
+        tx.vatApplied ? (tx.vat_amount || 0).toFixed(2) : "0.00",
         tx.purchasedPrice.toFixed(2),
         tx.profit.toFixed(2),
         tx.salesman
@@ -603,7 +623,7 @@ router.get("/purchases/export/pdf", protect, authorize("salesman", "admin", "pur
 
       if (i % 2 === 0) doc.rect(LEFT, y, PAGE_W, rh).fill("#f8fafc");
       doc.font("Helvetica").fontSize(8);
-      drawRow(tCols, vals, y, rh, false, 5);
+      drawRow(tCols, vals, y, rh, false, 7);
       y += rh;
     });
 
@@ -784,7 +804,14 @@ router.put("/:id", protect, authorize("salesman", "admin"), async (req, res, nex
       sale.unit_price = newPrice;
     }
 
-    sale.total_price = Number((sale.unit_price * sale.quantity).toFixed(2));
+    // Recalculate total_price (VAT-aware)
+    if (sale.vatApplied) {
+      const baseTotal = Number((sale.unit_price * sale.quantity).toFixed(2));
+      sale.vat_amount = Number((sale.unit_price * 0.15 * sale.quantity).toFixed(2));
+      sale.total_price = Number((baseTotal + sale.vat_amount).toFixed(2));
+    } else {
+      sale.total_price = Number((sale.unit_price * sale.quantity).toFixed(2));
+    }
 
     // Mark as directly edited for salesman (one-time edit rule), or set admin approval details for admin
     if (!isAdmin) {
@@ -820,7 +847,7 @@ router.post(
   handleValidation,
   async (req, res, next) => {
     try {
-      const { productId, quantity, sellingPrice } = req.body;
+      const { productId, quantity, sellingPrice, vatApplied } = req.body;
 
       const product = await Product.findById(productId);
       if (!product) {
@@ -854,7 +881,11 @@ router.post(
       product.quantity -= quantity;
       await product.save();
 
-      const totalPrice = Number((parsedSellingPrice * quantity).toFixed(2));
+      const isVat = vatApplied === true;
+      const baseTotal = Number((parsedSellingPrice * quantity).toFixed(2));
+      const vatAmount = isVat ? Number((parsedSellingPrice * 0.15 * quantity).toFixed(2)) : 0;
+      const totalPrice = isVat ? Number((baseTotal + vatAmount).toFixed(2)) : baseTotal;
+
       // Snapshot the purchased price from the product for profit tracking
       const purchasedPriceSnapshot = product.purchasedPrice
         ? toAppCurrency(product.purchasedPrice, sourceCurrency)
@@ -867,7 +898,9 @@ router.post(
         purchased_price: purchasedPriceSnapshot,
         total_price: totalPrice,
         currency: APP_CURRENCY,
-        salesman_id: req.user._id
+        salesman_id: req.user._id,
+        vatApplied: isVat,
+        vat_amount: vatAmount
       });
 
       emitStockUpdate({
