@@ -57,7 +57,7 @@ export const ProductsPage = () => {
   const isAdmin = user?.role === "admin";
   const isPurchaser = user?.role === "purchaser";
   const isSalesman = user?.role === "salesman";
-  const canManageProducts = isAdmin || isPurchaser;
+  const canManageProducts = isAdmin || isPurchaser || isSalesman;
   const canAddOrEdit = isAdmin || isPurchaser || isSalesman;
 
   const fetchProducts = useCallback(async () => {
@@ -229,14 +229,13 @@ export const ProductsPage = () => {
 
       {canAddOrEdit && (
         <form className="card form-inline" onSubmit={onSubmit}>
-          <input placeholder={t("products.name")} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={isSalesman && !!editingId} />
+          <input placeholder={t("products.name")} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input
             type="number"
             step="0.01"
             placeholder="Purchased Price (Br)"
             value={form.purchasedPrice}
             onChange={(e) => setForm({ ...form, purchasedPrice: e.target.value })}
-            disabled={isSalesman && !!editingId}
           />
           <input
             type="number"
@@ -244,7 +243,6 @@ export const ProductsPage = () => {
             placeholder="Min Selling Price (Br)"
             value={form.minSellingPrice}
             onChange={(e) => setForm({ ...form, minSellingPrice: e.target.value })}
-            disabled={isSalesman && !!editingId}
           />
 
           <input
@@ -258,7 +256,6 @@ export const ProductsPage = () => {
             required
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
-            disabled={isSalesman && !!editingId}
           >
             <option value="">-- {t("products.category")} --</option>
             {categories.map((c) => (
@@ -270,7 +267,6 @@ export const ProductsPage = () => {
             placeholder={t("products.lowStockThreshold")}
             value={form.lowStockThreshold}
             onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
-            disabled={isSalesman && !!editingId}
           />
           <button className="btn" type="submit">
             {editingId ? t("common.updateProduct") : t("common.addProduct")}

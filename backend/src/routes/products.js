@@ -103,15 +103,9 @@ router.put(
         return res.status(404).json({ message: "Product not found." });
       }
 
-      const isSalesman = req.user.role === "salesman";
-
       // Resolve final values (use submitted value or fall back to existing)
-      const purchasedPrice = isSalesman
-        ? (existing.purchasedPrice || 0)
-        : (req.body.purchasedPrice !== undefined ? Number(req.body.purchasedPrice) : (existing.purchasedPrice || 0));
-      const minSellingPrice = isSalesman
-        ? (existing.minSellingPrice || 0)
-        : (req.body.minSellingPrice !== undefined ? Number(req.body.minSellingPrice) : (existing.minSellingPrice || 0));
+      const purchasedPrice = req.body.purchasedPrice !== undefined ? Number(req.body.purchasedPrice) : (existing.purchasedPrice || 0);
+      const minSellingPrice = req.body.minSellingPrice !== undefined ? Number(req.body.minSellingPrice) : (existing.minSellingPrice || 0);
 
       // Cross-field validation
       if (minSellingPrice < purchasedPrice) {
@@ -122,12 +116,12 @@ router.put(
       }
 
       const updateData = {
-        name: isSalesman ? existing.name : req.body.name,
+        name: req.body.name,
         purchasedPrice,
         minSellingPrice,
         quantity: req.body.quantity,
-        category: isSalesman ? existing.category : req.body.category,
-        lowStockThreshold: isSalesman ? existing.lowStockThreshold : req.body.lowStockThreshold,
+        category: req.body.category,
+        lowStockThreshold: req.body.lowStockThreshold,
         currency: APP_CURRENCY
       };
       // Remove undefined keys so we don't overwrite with undefined
@@ -156,7 +150,7 @@ router.put(
   }
 );
 
-router.delete("/:id", protect, authorize("admin", "purchaser"), async (req, res, next) => {
+router.delete("/:id", protect, authorize("admin", "purchaser", "salesman"), async (req, res, next) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
     if (!product) {
