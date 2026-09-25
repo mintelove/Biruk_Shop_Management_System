@@ -32,13 +32,25 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const updateProfile = async (payload) => {
+    const res = await api.patch("/auth/me", payload);
+    if (res.data?.token) {
+      localStorage.setItem("token", res.data.token);
+    }
+    if (res.data?.user) {
+      setUser((prev) => ({ ...prev, ...res.data.user }));
+    }
+    return res.data;
+  };
+
   const value = useMemo(
     () => ({
       user,
       loading,
       login,
       logout,
-      refreshUser
+      refreshUser,
+      updateProfile
     }),
     [user, loading]
   );

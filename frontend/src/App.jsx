@@ -11,6 +11,7 @@ import { PurchasePage } from "./pages/PurchasePage";
 import { UsersPage } from "./pages/UsersPage";
 import { AdminSettingsPage } from "./pages/AdminSettingsPage";
 import { AboutUs } from "./pages/AboutUs";
+import { NotificationDetailPage } from "./pages/NotificationDetailPage";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { Preloader } from "./components/Preloader";
 
@@ -64,6 +65,7 @@ function App() {
             }
           />
           <Route path="about" element={<AboutUs />} />
+          <Route path="notifications/:id" element={<NotificationDetailPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />

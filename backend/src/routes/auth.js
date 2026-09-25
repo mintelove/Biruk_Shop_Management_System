@@ -209,8 +209,10 @@ router.patch(
         currentUser.tokenVersion += 1;
       }
       await currentUser.save();
+      const token = signToken(currentUser);
       return res.json({
         message: "Profile updated successfully.",
+        token,
         user: { id: currentUser._id, name: currentUser.name, email: currentUser.email, role: currentUser.role, isActive: currentUser.isActive }
       });
     } catch (error) {

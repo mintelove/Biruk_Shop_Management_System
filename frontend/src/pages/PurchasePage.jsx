@@ -4,6 +4,10 @@ import { formatCurrency } from "../utils/currency";
 import { useI18n } from "../context/I18nContext";
 import { useSocket } from "../hooks/useSocket";
 import { useAuth } from "../context/AuthContext";
+import { Modal } from "../components/Modal";
+import { calculatePeriodDates, formatLocalDate, PROFIT_PERIOD_OPTIONS } from "../utils/datePeriods";
+import { PageLoader } from "../components/PageLoader";
+import { StatCard } from "../components/StatCard";
 
 const DownloadIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -31,11 +35,86 @@ export const PurchasePage = () => {
   const isAdmin = user?.role === "admin";
   
   const [data, setData] = useState({ transactions: [], byProduct: [], totalProfit: 0 });
-  const [dateFilter, setDateFilter] = useState("");
+  const [periodFilter, setPeriodFilter] = useState("today");
+  const [dateFilter, setDateFilter] = useState(() => formatLocalDate(new Date()));
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [search, setSearch] = useState("");
   const [vatFilter, setVatFilter] = useState("all");
+
+  // Today's Profit dedicated real-time state
+  const [todayProfitData, setTodayProfitData] = useState({ totalProfit: 0, count: 0 });
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const handlePeriodChange = (newPeriod) => {
+    setPeriodFilter(newPeriod);
+    if (!newPeriod) {
+      setDateFilter("");
+      setStartDate("");
+      setEndDate("");
+      return;
+    }
+    const bounds = calculatePeriodDates(newPeriod);
+    if (newPeriod === "today") {
+      setDateFilter(bounds.date);
+      setStartDate("");
+      setEndDate("");
+    } else {
+      setDateFilter("");
+      setStartDate(bounds.startDate);
+      setEndDate(bounds.endDate);
+    }
+  };
+
+  const activePeriodOption = useMemo(() => {
+    const found = PROFIT_PERIOD_OPTIONS.find((o) => o.value === periodFilter);
+    return found ? found.label : (dateFilter || startDate ? "Custom Period" : "");
+  }, [periodFilter, dateFilter, startDate]);
+
+  const periodCardMeta = useMemo(() => {
+    switch (periodFilter) {
+      case "today":
+        return {
+          title: "TODAY'S PROFIT",
+          badge: "Today",
+          value: data.totalProfit,
+          sub: `${data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} transactions today`
+        };
+      case "this_week":
+        return {
+          title: "THIS WEEK'S PROFIT",
+          badge: "This Week",
+          value: data.totalProfit,
+          sub: `${data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} transactions this week`
+        };
+      case "this_month":
+        return {
+          title: "THIS MONTH'S PROFIT",
+          badge: "This Month",
+          value: data.totalProfit,
+          sub: `${data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} transactions this month`
+        };
+      case "last_month":
+        return {
+          title: "LAST MONTH'S PROFIT",
+          badge: "Last Month",
+          value: data.totalProfit,
+          sub: `${data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} transactions last month`
+        };
+      default:
+        return {
+          title: "TODAY'S PROFIT",
+          badge: "Live Today",
+          value: todayProfitData.totalProfit,
+          sub: `${todayProfitData.count} transactions completed today`
+        };
+    }
+  }, [periodFilter, data.totalProfit, data.transactions, todayProfitData]);
+
+  // Direct return confirmation modal state
+  const [returnConfirmTx, setReturnConfirmTx] = useState(null);
+  const [returnLoading, setReturnLoading] = useState(false);
 
   // Edit modal (Salesman direct edit or Admin edit)
   const [editTx, setEditTx] = useState(null);
@@ -59,7 +138,27 @@ export const PurchasePage = () => {
   // Salesman: own requests list
   const [myRequests, setMyRequests] = useState([]);
 
-  const fetchData = useCallback(async () => {
+  const fetchTodayProfit = useCallback(async () => {
+    try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const res = await api.get("/sales/purchases", { params: { date: todayStr, vatFilter } });
+      const activeTxs = (res.data.transactions || []).filter((tx) =>
+        ["active", "pending_return", "return_rejected"].includes(tx.status)
+      );
+      setTodayProfitData({
+        totalProfit: res.data.totalProfit || 0,
+        count: activeTxs.length
+      });
+    } catch {
+      // silent
+    }
+  }, [vatFilter]);
+
+  const fetchData = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setInitialLoading(true);
+      setLoadError("");
+    }
     const params = {};
     if (dateFilter) params.date = dateFilter;
     if (startDate) params.startDate = startDate;
@@ -68,7 +167,17 @@ export const PurchasePage = () => {
     try {
       const res = await api.get("/sales/purchases", { params });
       setData(res.data);
-    } catch { /* silent */ }
+      setLoadError("");
+    } catch (err) {
+      console.error("Profit data fetch error:", err);
+      if (isInitial) {
+        setLoadError("Unable to load profit data.");
+      }
+    } finally {
+      if (isInitial) {
+        setInitialLoading(false);
+      }
+    }
   }, [dateFilter, startDate, endDate, vatFilter]);
 
   const fetchEditRequests = useCallback(async () => {
@@ -88,19 +197,22 @@ export const PurchasePage = () => {
   }, [isAdmin, user?.role]);
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
+    fetchTodayProfit();
     fetchEditRequests();
     fetchMyRequests();
     const interval = setInterval(() => {
-      fetchData();
+      fetchData(false);
+      fetchTodayProfit();
       fetchMyRequests();
       if (isAdmin || user?.role === "purchaser") fetchEditRequests();
     }, 4000);
     return () => clearInterval(interval);
-  }, [fetchData, fetchEditRequests, fetchMyRequests, isAdmin, user?.role]);
+  }, [fetchData, fetchTodayProfit, fetchEditRequests, fetchMyRequests, isAdmin, user?.role]);
 
   useSocket("stock:update", () => {
-    fetchData();
+    fetchData(false);
+    fetchTodayProfit();
     fetchEditRequests();
     fetchMyRequests();
   });
@@ -189,15 +301,19 @@ export const PurchasePage = () => {
     );
   };
 
-  const handleAdminDirectReturn = async (tx) => {
-    const confirmReturn = window.confirm(`Are you sure you want to return transaction for product "${tx.product_name}"? This will restore quantity back to inventory and reverse sale/profit metrics immediately.`);
-    if (!confirmReturn) return;
+  const confirmDirectReturn = async () => {
+    if (!returnConfirmTx) return;
+    setReturnLoading(true);
     try {
-      await api.post(`/sales/${tx._id}/return`);
+      await api.post(`/sales/${returnConfirmTx._id}/return`);
+      setReturnConfirmTx(null);
       fetchData();
+      fetchTodayProfit();
       if (isAdmin || user?.role === "purchaser") fetchEditRequests();
     } catch (err) {
       alert(err.response?.data?.message || "Direct return failed.");
+    } finally {
+      setReturnLoading(false);
     }
   };
 
@@ -340,9 +456,6 @@ export const PurchasePage = () => {
     }
   };
 
-  const profitCardClass = data.totalProfit > 0
-    ? "profit-total-card"
-    : data.totalProfit < 0 ? "profit-total-card profit-total-card--negative" : "profit-total-card profit-total-card--zero";
 
   const pendingRequests = editRequests.filter(r => r.status === "pending");
   const priceChangeRequests = pendingRequests.filter(r => r.type === "price_change");
@@ -377,7 +490,7 @@ export const PurchasePage = () => {
           )}
           {!isReturned && (
             <button className="btn" style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#e11d48" }}
-              onClick={() => handleAdminDirectReturn(tx)}>
+              onClick={() => setReturnConfirmTx(tx)}>
               ↩️ Return
             </button>
           )}
@@ -436,6 +549,23 @@ export const PurchasePage = () => {
       </div>
     );
   };
+
+  if (initialLoading) {
+    return <PageLoader loading={true} message="Please wait while profit and transaction data is being loaded." />;
+  }
+
+  if (loadError && (!data.transactions || data.transactions.length === 0)) {
+    return (
+      <PageLoader
+        loading={false}
+        error={loadError}
+        onRetry={() => {
+          fetchData(true);
+          fetchTodayProfit();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="stack">
@@ -502,17 +632,71 @@ export const PurchasePage = () => {
 
       {/* Date Filters + Export */}
       <div className="card csv-export-bar" style={{ flexWrap: "wrap", gap: "1rem" }}>
+        {/* Unified Profit Period Filter Control */}
+        <div className="csv-export-group period-filter-group">
+          <label htmlFor="profit-period-select" className="period-filter-label">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <span>Profit Period</span>
+          </label>
+          <div className="period-select-wrap">
+            <select
+              id="profit-period-select"
+              className="period-filter-select"
+              value={periodFilter}
+              onChange={(e) => handlePeriodChange(e.target.value)}
+              aria-label="Profit Period"
+            >
+              {PROFIT_PERIOD_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+              {periodFilter === "custom" && <option value="custom">Custom Date Range</option>}
+            </select>
+          </div>
+        </div>
+
         <div className="csv-export-group">
           <label>{t("dashboard.singleDate")}</label>
-          <input type="date" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setStartDate(""); setEndDate(""); }} />
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => {
+              setDateFilter(e.target.value);
+              setStartDate("");
+              setEndDate("");
+              setPeriodFilter(e.target.value ? "custom" : "");
+            }}
+          />
         </div>
         <div className="csv-export-group">
           <label>{t("sales.startDate")}</label>
-          <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setDateFilter(""); }} />
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              setStartDate(e.target.value);
+              setDateFilter("");
+              setPeriodFilter(e.target.value ? "custom" : "");
+            }}
+          />
         </div>
         <div className="csv-export-group">
           <label>{t("sales.endDate")}</label>
-          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setDateFilter(""); }} />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => {
+              setEndDate(e.target.value);
+              setDateFilter("");
+              setPeriodFilter(e.target.value ? "custom" : "");
+            }}
+          />
         </div>
         <div className="csv-export-group">
           <label>{t("sales.vatFilter") || "VAT Filter"}</label>
@@ -527,8 +711,19 @@ export const PurchasePage = () => {
           </select>
         </div>
         <div className="csv-export-group" style={{ alignSelf: "flex-end" }}>
-          <button type="button" className="btn btn-secondary" style={{ padding: "0.5rem 1rem", fontSize: "0.85rem", background: "#64748b", color: "#fff", borderRadius: "8px", border: "none", cursor: "pointer" }}
-            onClick={() => { setDateFilter(""); setStartDate(""); setEndDate(""); setVatFilter("all"); }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ padding: "0.5rem 1rem", fontSize: "0.85rem", background: "#64748b", color: "#fff", borderRadius: "8px", border: "none", cursor: "pointer" }}
+            onClick={() => {
+              const bounds = calculatePeriodDates("today");
+              setPeriodFilter("today");
+              setDateFilter(bounds.date);
+              setStartDate("");
+              setEndDate("");
+              setVatFilter("all");
+            }}
+          >
             {t("dashboard.resetFilter")}
           </button>
         </div>
@@ -543,24 +738,31 @@ export const PurchasePage = () => {
       </div>
 
       {/* Summary Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(205px, 1fr))", gap: "0.85rem", marginBottom: "1rem" }}>
+        {/* Large Promoted Period / Today's Profit Card */}
+        <StatCard
+          title={periodCardMeta.title}
+          value={formatCurrency(periodCardMeta.value)}
+          subtitle={periodCardMeta.sub}
+          badge={periodCardMeta.badge}
+          color={periodCardMeta.value < 0 ? "red" : periodCardMeta.value === 0 ? "zero" : "emerald"}
+        />
+
         {/* Total Profit Card */}
-        <div className={profitCardClass}>
-          <p className="profit-total-label">{t("sales.totalProfit")}</p>
-          <p className="profit-total-value">{formatCurrency(data.totalProfit)}</p>
-          <p className="profit-total-subtitle">
-            {data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} {t("dashboard.transactions")}
-          </p>
-        </div>
+        <StatCard
+          title={periodFilter ? `${activePeriodOption} Net Profit` : t("sales.totalProfit")}
+          value={formatCurrency(data.totalProfit)}
+          subtitle={`${data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} ${t("dashboard.transactions")}`}
+          color={data.totalProfit > 0 ? "green" : data.totalProfit < 0 ? "red" : "zero"}
+        />
 
         {/* Total Items Sold Card */}
-        <div className="profit-total-card" style={{ background: "linear-gradient(135deg, #3b82f6, #2563eb)", color: "#fff", borderColor: "rgba(255,255,255,0.1)" }}>
-          <p className="profit-total-label" style={{ color: "rgba(255,255,255,0.9)" }}>Total Items Sold</p>
-          <p className="profit-total-value" style={{ color: "#fff" }}>{data.totalItemsSold || 0}</p>
-          <p className="profit-total-subtitle" style={{ color: "rgba(255,255,255,0.8)" }}>
-            Across all {data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} active transactions
-          </p>
-        </div>
+        <StatCard
+          title={periodFilter ? `Items Sold (${activePeriodOption})` : "Total Items Sold"}
+          value={data.totalItemsSold || 0}
+          subtitle={`Across all ${data.transactions.filter(tx => ["active", "pending_return", "return_rejected"].includes(tx.status)).length} active transactions`}
+          color="indigo"
+        />
       </div>
 
 
@@ -568,30 +770,32 @@ export const PurchasePage = () => {
       {/* Profit Per Product */}
       <div className="card profit-table-card">
         <h3 style={{ marginBottom: "0.8rem" }}>{t("sales.profitPerProduct")}</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>{t("sales.product")}</th>
-              <th>{t("sales.qty")}</th>
-              <th>{t("sales.totalProfit")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.byProduct.length === 0 ? (
-              <tr><td colSpan={3} className="no-results">{t("sales.noResults")}</td></tr>
-            ) : (
-              data.byProduct.map((item, idx) => (
-                <tr key={idx}>
-                  <td>{item.product_name}</td>
-                  <td>{item.totalQuantity}</td>
-                  <td style={{ fontWeight: 600, color: item.totalProfit > 0 ? "#22c55e" : item.totalProfit < 0 ? "#ef4444" : "#94a3b8" }}>
-                    {formatCurrency(item.totalProfit)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        <div className="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("sales.product")}</th>
+                <th>{t("sales.qty")}</th>
+                <th>{t("sales.totalProfit")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.byProduct.length === 0 ? (
+                <tr><td colSpan={3} className="no-results">{t("sales.noResults")}</td></tr>
+              ) : (
+                data.byProduct.map((item, idx) => (
+                  <tr key={idx}>
+                    <td>{item.product_name}</td>
+                    <td>{item.totalQuantity}</td>
+                    <td style={{ fontWeight: 600, color: item.totalProfit > 0 ? "#22c55e" : item.totalProfit < 0 ? "#ef4444" : "#94a3b8" }}>
+                      {formatCurrency(item.totalProfit)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* All Transactions */}
@@ -600,59 +804,61 @@ export const PurchasePage = () => {
         <div className="sales-search-wrap" style={{ marginBottom: "0.8rem" }}>
           <input className="sales-search-input" placeholder={t("sales.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>{t("sales.date")}</th>
-              <th>{t("sales.product")}</th>
-              <th>{t("sales.qty")}</th>
-              <th>{t("sales.unitPrice")}</th>
-              <th>Cost Price</th>
-              <th>{t("sales.totalProfit")}</th>
-              <th>{t("sales.salesman")}</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activeTransactions.length === 0 ? (
-              <tr><td colSpan={9} className="no-results">{t("sales.noResults")}</td></tr>
-            ) : (
-              activeTransactions.map((tx) => (
-                <tr key={tx._id} style={tx.status !== "active" && tx.status !== "pending_return" && tx.status !== "return_rejected" ? { opacity: 0.55 } : undefined}>
-                  <td>{new Date(tx.date).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
-                  <td>{tx.product_name}</td>
-                  <td>{tx.quantity}</td>
-                  <td>{formatCurrency(tx.sellingPrice)}</td>
-                  <td>{formatCurrency(tx.purchasedPrice)}</td>
-                  <td style={{ fontWeight: 600, color: tx.profit > 0 ? "#22c55e" : tx.profit < 0 ? "#ef4444" : "#94a3b8" }}>
-                    {formatCurrency(tx.profit)}
-                  </td>
-                  <td>{tx.salesman}</td>
-                  <td>
-                    {renderStatusBadge(tx)}
-                    {tx.adminMessage && (
-                      <div style={{ marginTop: "0.2rem", fontSize: "0.72rem", color: "#dc2626", fontWeight: 600 }}>
-                        ⚠️ {tx.adminMessage}
-                      </div>
-                    )}
-                    {(() => {
-                      const r = getRequestStatus(tx._id);
-                      return r && r.reason ? (
-                        <div style={{ marginTop: "0.25rem", fontSize: "0.74rem", color: "var(--muted)", fontStyle: "italic" }}>
-                          💬 Msg: "{r.reason}"
+        <div className="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("sales.date")}</th>
+                <th>{t("sales.product")}</th>
+                <th>{t("sales.qty")}</th>
+                <th>{t("sales.unitPrice")}</th>
+                <th>Cost Price</th>
+                <th>{t("sales.totalProfit")}</th>
+                <th>{t("sales.salesman")}</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeTransactions.length === 0 ? (
+                <tr><td colSpan={9} className="no-results">{t("sales.noResults")}</td></tr>
+              ) : (
+                activeTransactions.map((tx) => (
+                  <tr key={tx._id} style={tx.status !== "active" && tx.status !== "pending_return" && tx.status !== "return_rejected" ? { opacity: 0.55 } : undefined}>
+                    <td>{new Date(tx.date).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
+                    <td>{tx.product_name}</td>
+                    <td>{tx.quantity}</td>
+                    <td>{formatCurrency(tx.sellingPrice)}</td>
+                    <td>{formatCurrency(tx.purchasedPrice)}</td>
+                    <td style={{ fontWeight: 600, color: tx.profit > 0 ? "#22c55e" : tx.profit < 0 ? "#ef4444" : "#94a3b8" }}>
+                      {formatCurrency(tx.profit)}
+                    </td>
+                    <td>{tx.salesman}</td>
+                    <td>
+                      {renderStatusBadge(tx)}
+                      {tx.adminMessage && (
+                        <div style={{ marginTop: "0.2rem", fontSize: "0.72rem", color: "#dc2626", fontWeight: 600 }}>
+                          ⚠️ {tx.adminMessage}
                         </div>
-                      ) : null;
-                    })()}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    {renderActions(tx)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                      )}
+                      {(() => {
+                        const r = getRequestStatus(tx._id);
+                        return r && r.reason ? (
+                          <div style={{ marginTop: "0.25rem", fontSize: "0.74rem", color: "var(--muted)", fontStyle: "italic" }}>
+                            💬 Msg: "{r.reason}"
+                          </div>
+                        ) : null;
+                      })()}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {renderActions(tx)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
 
@@ -661,172 +867,277 @@ export const PurchasePage = () => {
       {!isAdmin && myRequests.length > 0 && (
         <div className="card profit-table-card">
           <h3 style={{ marginBottom: "0.8rem" }}>📄 My Request History</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>{t("sales.product")}</th>
-                <th>Details</th>
-                <th>Status</th>
-                <th>Submitted</th>
-                <th>Admin Feedback</th>
-              </tr>
-            </thead>
-            <tbody>
-              {myRequests.map((r) => {
-                const statusColors = { pending: "#eab308", approved: "#22c55e", rejected: "#ef4444" };
-                return (
-                  <tr key={r._id}>
-                    <td>
-                      <span style={{
-                        display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
-                        background: `${r.type === "price_change" ? "#8b5cf6" : "#e11d48"}18`,
-                        color: r.type === "price_change" ? "#8b5cf6" : "#e11d48", textTransform: "uppercase"
-                      }}>{r.type === "price_change" ? "Price Change" : "Return"}</span>
-                    </td>
-                    <td>{r.transaction_id?.product_name || "N/A"}</td>
-                    <td style={{ fontSize: "0.82rem" }}>
-                      {r.type === "price_change" ? (
-                        <span>{formatCurrency(r.oldPrice || 0)} → <strong>{formatCurrency(r.newPrice || 0)}</strong></span>
-                      ) : (
-                        <span>Refund: {formatCurrency(r.refundAmount || r.transaction_id?.total_price || 0)}</span>
-                      )}
-                    </td>
-                    <td>
-                      <span style={{
-                        display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
-                        background: `${statusColors[r.status] || "#94a3b8"}22`, color: statusColors[r.status] || "#94a3b8", textTransform: "uppercase"
-                      }}>{r.status}</span>
-                    </td>
-                    <td style={{ fontSize: "0.82rem" }}>{new Date(r.createdAt).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
-                    <td style={{ fontSize: "0.82rem" }}>
-                      {r.status === "rejected" && r.admin_note ? (
-                        <span style={{ color: "#dc2626", fontWeight: 600 }}>⚠️ {r.admin_note}</span>
-                      ) : r.status === "approved" ? (
-                        <span style={{ color: "#22c55e", fontWeight: 600 }}>✅ Approved</span>
-                      ) : (
-                        <span style={{ color: "#94a3b8" }}>⏳ Awaiting review</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>{t("sales.product")}</th>
+                  <th>Details</th>
+                  <th>Status</th>
+                  <th>Submitted</th>
+                  <th>Admin Feedback</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myRequests.map((r) => {
+                  const statusColors = { pending: "#eab308", approved: "#22c55e", rejected: "#ef4444" };
+                  return (
+                    <tr key={r._id}>
+                      <td>
+                        <span style={{
+                          display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
+                          background: `${r.type === "price_change" ? "#8b5cf6" : "#e11d48"}18`,
+                          color: r.type === "price_change" ? "#8b5cf6" : "#e11d48", textTransform: "uppercase"
+                        }}>{r.type === "price_change" ? "Price Change" : "Return"}</span>
+                      </td>
+                      <td>{r.transaction_id?.product_name || "N/A"}</td>
+                      <td style={{ fontSize: "0.82rem" }}>
+                        {r.type === "price_change" ? (
+                          <span>{formatCurrency(r.oldPrice || 0)} → <strong>{formatCurrency(r.newPrice || 0)}</strong></span>
+                        ) : (
+                          <span>Refund: {formatCurrency(r.refundAmount || r.transaction_id?.total_price || 0)}</span>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{
+                          display: "inline-block", padding: "0.15rem 0.5rem", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700,
+                          background: `${statusColors[r.status] || "#94a3b8"}22`, color: statusColors[r.status] || "#94a3b8", textTransform: "uppercase"
+                        }}>{r.status}</span>
+                      </td>
+                      <td style={{ fontSize: "0.82rem" }}>{new Date(r.createdAt).toLocaleString(language === "am" ? "am-ET" : "en-US")}</td>
+                      <td style={{ fontSize: "0.82rem" }}>
+                        {r.status === "rejected" && r.admin_note ? (
+                          <span style={{ color: "#dc2626", fontWeight: 600 }}>⚠️ {r.admin_note}</span>
+                        ) : r.status === "approved" ? (
+                          <span style={{ color: "#22c55e", fontWeight: 600 }}>✅ Approved</span>
+                        ) : (
+                          <span style={{ color: "#94a3b8" }}>⏳ Awaiting review</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Edit Price Modal */}
-      {editTx && (
-        <div className="modal-backdrop" onClick={() => setEditTx(null)}>
-          <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>✏️ {isAdmin ? "Admin Edit Price" : "Edit Transaction Price"}</h3>
+      {/* EDIT PRICE POPUP MODAL */}
+      <Modal
+        isOpen={!!editTx}
+        onClose={() => setEditTx(null)}
+        title={isAdmin ? "Admin Edit Price" : "Edit Transaction Price"}
+        maxWidth="500px"
+        icon={<span>✏️</span>}
+      >
+        {editTx && (
+          <div className="stack" style={{ gap: "0.9rem" }}>
             <div style={{
-              margin: "0.6rem 0", padding: "0.7rem", borderRadius: "10px",
-              background: "var(--card-bg, rgba(100,116,139,0.06))",
-              border: "1px solid var(--input-border, rgba(100,116,139,0.15))",
+              padding: "0.75rem", borderRadius: "10px",
+              background: "var(--input-bg, rgba(100,116,139,0.06))",
+              border: "1px solid var(--border)",
               fontSize: "0.88rem"
             }}>
               <div>Product Name: <strong>{editTx.product_name}</strong></div>
               <div style={{ marginTop: "0.3rem" }}>Current Price: <strong>{formatCurrency(editTx.sellingPrice)}</strong></div>
             </div>
             {!isAdmin && editTx.minSellingPrice && adminPriceBadge(editTx.minSellingPrice)}
-            {editError && <p className="error" style={{ margin: "0.4rem 0" }}>{editError}</p>}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
-              <div>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>New Price</label>
-                <input type="number" min="0.01" step="0.01" value={editForm.sellingPrice}
-                  onChange={(e) => setEditForm({ ...editForm, sellingPrice: e.target.value })} style={{ width: "100%", padding: "0.55rem" }} />
-              </div>
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
-                <button className="btn" onClick={onEditSubmit}>{t("sales.save")}</button>
-                <button className="btn" style={{ background: "#64748b" }} onClick={() => setEditTx(null)}>{t("sales.cancel")}</button>
-              </div>
+            {editError && <p className="error" style={{ margin: "0.2rem 0" }}>{editError}</p>}
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.3rem" }}>
+                New Price (Br)
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={editForm.sellingPrice}
+                onChange={(e) => setEditForm({ ...editForm, sellingPrice: e.target.value })}
+                style={{ width: "100%", padding: "0.65rem 0.8rem", borderRadius: "10px" }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.4rem" }}>
+              <button className="btn btn-secondary" style={{ background: "#64748b", color: "#fff" }} onClick={() => setEditTx(null)}>
+                {t("sales.cancel") || "Cancel"}
+              </button>
+              <button className="btn" onClick={onEditSubmit}>
+                {t("sales.save") || "Save Price"}
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
-      {/* Request Modal (Price Change / Return) */}
-      {reqTx && (
-        <div className="modal-backdrop" onClick={() => setReqTx(null)}>
-          <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>{reqType === "return" ? "↩️ Request Return Approval" : "📝 Request Price Change"}</h3>
-
-            {/* Transaction Details */}
+      {/* REQUEST PRICE CHANGE / RETURN POPUP MODAL */}
+      <Modal
+        isOpen={!!reqTx}
+        onClose={() => setReqTx(null)}
+        title={reqType === "return" ? "Request Return Approval" : "Request Price Change"}
+        maxWidth="520px"
+        icon={<span>{reqType === "return" ? "↩️" : "📝"}</span>}
+      >
+        {reqTx && (
+          <div className="stack" style={{ gap: "0.9rem" }}>
             <div style={{
-              margin: "0.6rem 0", padding: "0.7rem", borderRadius: "10px",
-              background: "var(--card-bg, rgba(100,116,139,0.06))",
-              border: "1px solid var(--input-border, rgba(100,116,139,0.15))"
+              padding: "0.75rem", borderRadius: "10px",
+              background: "var(--input-bg, rgba(100,116,139,0.06))",
+              border: "1px solid var(--border)"
             }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem 1rem", fontSize: "0.84rem" }}>
-                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Transaction ID:</span> <strong style={{ fontFamily: "monospace", fontSize: "0.78rem" }}>{String(reqTx._id).slice(-8).toUpperCase()}</strong></div>
-                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Product:</span> <strong>{reqTx.product_name}</strong></div>
-                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Quantity Sold:</span> <strong>{reqTx.quantity}</strong></div>
-                <div><span style={{ color: "var(--muted)", fontWeight: 500 }}>Selling Price:</span> <strong>Br {Number(reqTx.sellingPrice).toFixed(2)}</strong></div>
+                <div><span className="muted">Tx ID:</span> <strong style={{ fontFamily: "monospace" }}>{String(reqTx._id).slice(-8).toUpperCase()}</strong></div>
+                <div><span className="muted">Product:</span> <strong>{reqTx.product_name}</strong></div>
+                <div><span className="muted">Qty:</span> <strong>{reqTx.quantity}</strong></div>
+                <div><span className="muted">Current Price:</span> <strong>Br {Number(reqTx.sellingPrice).toFixed(2)}</strong></div>
               </div>
             </div>
 
             {reqType === "price_change" && reqTx.minSellingPrice && adminPriceBadge(reqTx.minSellingPrice)}
-            {reqError && <p className="error" style={{ margin: "0.4rem 0" }}>{reqError}</p>}
-            {reqSuccess && <p style={{ margin: "0.4rem 0", color: "#22c55e", fontWeight: 600 }}>{reqSuccess}</p>}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
-              {reqType === "price_change" && (
-                <div>
-                  <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>Requested Unit Price (Br)</label>
-                  <input type="number" min="0.01" step="0.01" value={reqNewPrice}
-                    onChange={(e) => setReqNewPrice(e.target.value)} style={{ width: "100%", padding: "0.55rem" }} />
-                </div>
-              )}
+            {reqError && <p className="error" style={{ margin: "0.2rem 0" }}>{reqError}</p>}
+            {reqSuccess && <p style={{ margin: "0.2rem 0", color: "#22c55e", fontWeight: 600 }}>{reqSuccess}</p>}
+
+            {reqType === "price_change" && (
               <div>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>
-                  {reqType === "return" ? "Reason for Return" : "Reason for Price Correction"}
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.3rem" }}>
+                  Requested Unit Price (Br)
                 </label>
-                <textarea value={reqReason} onChange={(e) => setReqReason(e.target.value)} rows={3}
-                  placeholder={reqType === "return" ? "Describe the customer issue or return details..." : "Describe why this correction is necessary..."}
-                  style={{ width: "100%", padding: "0.5rem", borderRadius: "8px", border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--input-text)", fontFamily: "inherit", fontSize: "0.92rem", resize: "vertical" }} />
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={reqNewPrice}
+                  onChange={(e) => setReqNewPrice(e.target.value)}
+                  style={{ width: "100%", padding: "0.65rem 0.8rem", borderRadius: "10px" }}
+                />
               </div>
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
-                <button className="btn" onClick={onReqSubmit} disabled={!reqReason.trim()} style={{ background: reqType === "return" ? "#e11d48" : undefined }}>
-                  {t("sales.submitRequest")}
-                </button>
-                <button className="btn" style={{ background: "#64748b" }} onClick={() => setReqTx(null)}>{t("sales.cancel")}</button>
-              </div>
+            )}
+
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.3rem" }}>
+                {reqType === "return" ? "Reason for Return *" : "Reason for Price Correction *"}
+              </label>
+              <textarea
+                value={reqReason}
+                onChange={(e) => setReqReason(e.target.value)}
+                rows={3}
+                placeholder={reqType === "return" ? "Describe why the customer is returning..." : "Describe why this correction is necessary..."}
+                style={{ width: "100%", padding: "0.6rem 0.8rem", borderRadius: "10px", resize: "vertical" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.4rem" }}>
+              <button className="btn btn-secondary" style={{ background: "#64748b", color: "#fff" }} onClick={() => setReqTx(null)}>
+                {t("sales.cancel") || "Cancel"}
+              </button>
+              <button
+                className="btn"
+                onClick={onReqSubmit}
+                disabled={!reqReason.trim()}
+                style={{ background: reqType === "return" ? "#e11d48" : undefined }}
+              >
+                {t("sales.submitRequest") || "Submit Request"}
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
-      {/* Admin Rejection Reason Modal */}
-      {rejectingReq && (
-        <div className="modal-backdrop" onClick={() => setRejectingReq(null)}>
-          <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ color: "#ef4444" }}>❌ Enter Rejection Note</h3>
-            <p style={{ margin: "0.4rem 0", color: "var(--muted)" }}>
+      {/* ADMIN REJECTION REASON POPUP MODAL */}
+      <Modal
+        isOpen={!!rejectingReq}
+        onClose={() => setRejectingReq(null)}
+        title="Enter Rejection Note"
+        maxWidth="480px"
+        icon={<span>❌</span>}
+      >
+        {rejectingReq && (
+          <div className="stack" style={{ gap: "0.9rem" }}>
+            <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.9rem" }}>
               Rejecting {rejectingReq.type === "price_change" ? "Price Change" : "Return"} request for "{rejectingReq.transaction_id?.product_name || "item"}".
             </p>
             {rejectingReq.reason && (
-              <div style={{ margin: "0.5rem 0", padding: "0.6rem 0.8rem", borderRadius: "6px", background: "rgba(100,116,139,0.06)", borderLeft: "3px solid #ef4444", fontSize: "0.85rem", fontStyle: "italic" }}>
+              <div style={{ padding: "0.6rem 0.8rem", borderRadius: "8px", background: "rgba(100,116,139,0.08)", borderLeft: "3px solid #ef4444", fontSize: "0.85rem", fontStyle: "italic" }}>
                 💬 Salesman Reason: "{rejectingReq.reason}"
               </div>
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "0.6rem" }}>
-              <div>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.2rem" }}>Rejection Reason (Salesman will see this)</label>
-                <textarea value={rejectionNote} onChange={(e) => setRejectionNote(e.target.value)} rows={3}
-                  placeholder="Explain why this request is being rejected..."
-                  style={{ width: "100%", padding: "0.5rem", borderRadius: "8px", border: "1px solid var(--input-border)", background: "var(--input-bg)", color: "var(--input-text)", fontFamily: "inherit", fontSize: "0.92rem", resize: "vertical" }} />
-              </div>
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem" }}>
-                <button className="btn btn-danger" onClick={() => onReview(rejectingReq._id, "rejected", rejectionNote)} disabled={!rejectionNote.trim()}>
-                  Confirm Rejection
-                </button>
-                <button className="btn" style={{ background: "#64748b" }} onClick={() => setRejectingReq(null)}>{t("sales.cancel")}</button>
-              </div>
+            <div>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.3rem" }}>
+                Rejection Reason (Salesman will see this) *
+              </label>
+              <textarea
+                value={rejectionNote}
+                onChange={(e) => setRejectionNote(e.target.value)}
+                rows={3}
+                placeholder="Explain why this request is being rejected..."
+                style={{ width: "100%", padding: "0.6rem 0.8rem", borderRadius: "10px", resize: "vertical" }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.4rem" }}>
+              <button className="btn btn-secondary" style={{ background: "#64748b", color: "#fff" }} onClick={() => setRejectingReq(null)}>
+                {t("sales.cancel") || "Cancel"}
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={() => onReview(rejectingReq._id, "rejected", rejectionNote)}
+                disabled={!rejectionNote.trim()}
+              >
+                Confirm Rejection
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
+
+      {/* ADMIN DIRECT RETURN CONFIRMATION POPUP MODAL */}
+      <Modal
+        isOpen={!!returnConfirmTx}
+        onClose={() => setReturnConfirmTx(null)}
+        title="Confirm Transaction Return"
+        maxWidth="480px"
+        icon={<span style={{ color: "#e11d48" }}>↩️</span>}
+      >
+        {returnConfirmTx && (
+          <div className="stack" style={{ gap: "1rem" }}>
+            <p style={{ margin: 0, fontSize: "0.95rem", lineHeight: 1.5 }}>
+              Are you sure you want to process a return for this transaction?
+            </p>
+            <div style={{
+              padding: "0.75rem 1rem",
+              background: "rgba(225, 29, 72, 0.08)",
+              border: "1px solid rgba(225, 29, 72, 0.2)",
+              borderRadius: "10px"
+            }}>
+              <strong style={{ fontSize: "1.05rem", color: "#e11d48" }}>{returnConfirmTx.product_name}</strong>
+              <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.25rem" }}>
+                Quantity: <strong>{returnConfirmTx.quantity}</strong> • Refund: <strong>{formatCurrency(returnConfirmTx.total_price)}</strong>
+              </div>
+            </div>
+            <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--muted)" }}>
+              This will restore {returnConfirmTx.quantity} unit(s) back to inventory and reverse the sale/profit metrics immediately.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.4rem" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setReturnConfirmTx(null)}
+                disabled={returnLoading}
+                style={{ background: "#64748b", color: "#fff" }}
+              >
+                {t("common.cancel", "Cancel")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={confirmDirectReturn}
+                disabled={returnLoading}
+              >
+                {returnLoading ? "Processing Return..." : "Yes, Process Return"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

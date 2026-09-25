@@ -23,7 +23,14 @@ export const Preloader = () => {
               ease: "easeInOut" 
             }}
           >
-            <img src={logo} alt="MaM Logo" className="preloader-logo" />
+            <img
+              src={logo}
+              alt="MaM Logo"
+              className="preloader-logo"
+              width="56"
+              height="56"
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
           </motion.div>
           
           <motion.p 

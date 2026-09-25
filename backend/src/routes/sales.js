@@ -9,6 +9,7 @@ import { emitStockUpdate } from "../utils/socket.js";
 import { EditRequest } from "../models/EditRequest.js";
 import { APP_CURRENCY, getRecordCurrency, toAppCurrency } from "../utils/currency.js";
 import { buildDateFilter, getDateLabel } from "../utils/dateFilterUtil.js";
+import { notifySaleCreated, notifyLowStock } from "../services/notificationService.js";
 
 const router = express.Router();
 
@@ -952,6 +953,10 @@ router.post(
         sale
       });
 
+      // Fire notifications asynchronously — never block the sale response
+      notifySaleCreated(sale, req.user).catch(() => {});
+      notifyLowStock(product).catch(() => {});
+
       return res.status(201).json(sale);
     } catch (error) {
       return next(error);
@@ -959,4 +964,33 @@ router.post(
   }
 );
 
+// Get single sale/transaction by ID (with authorization and populated details)
+router.get("/:id", protect, async (req, res, next) => {
+  try {
+    if (!req.params.id || !req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ success: false, message: "Invalid transaction ID format." });
+    }
+
+    const query = req.user.role === "admin"
+      ? { _id: req.params.id }
+      : { _id: req.params.id, salesman_id: req.user._id };
+
+    const sale = await Sale.findOne(query)
+      .populate("salesman_id", "name email role")
+      .populate("product_id", "name category sku unit");
+
+    if (!sale) {
+      return res.status(404).json({
+        success: false,
+        message: "Transaction details are no longer available or access denied."
+      });
+    }
+
+    return res.json({ success: true, sale });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 export default router;
+

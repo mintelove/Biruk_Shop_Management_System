@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
+import bgImage from "../picture/bgg.jpg";
 
 const rememberedEmailKey = "rememberedEmail";
 
@@ -117,7 +118,7 @@ export const LoginPage = () => {
   };
 
   return (
-    <div className="lp-screen">
+    <div className="lp-screen" style={{ "--login-bg": `url(${bgImage})` }}>
       {/* Animated background blobs */}
       <div className="lp-blob lp-blob--1" />
       <div className="lp-blob lp-blob--2" />

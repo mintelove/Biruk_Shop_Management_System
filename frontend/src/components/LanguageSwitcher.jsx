@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../context/I18nContext";
 import { api } from "../api/client";
 import { useSocket } from "../hooks/useSocket";
+import { getNotificationDestination } from "../utils/notificationNavigation";
 
 export const LanguageSwitcher = () => {
   const { language, switchLanguage, t } = useI18n();
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [notifications, setNotifications] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [toasts, setToasts] = useState([]);
-  const [selectedNotification, setSelectedNotification] = useState(null);
 
   const isAdmin = user?.role === "admin";
   const isSalesman = user?.role === "salesman";
@@ -159,7 +161,17 @@ export const LanguageSwitcher = () => {
                     notifications.map(n => {
                       const statusInfo = getStatusInfo(n);
                       return (
-                        <div key={n._id} className={`notification-item ${!n.read ? "unread" : ""}`} onClick={() => { markAsRead(n._id); setSelectedNotification(n); setShowDropdown(false); }}>
+                        <div
+                          key={n._id}
+                          className={`notification-item ${!n.read ? "unread" : ""}`}
+                          onClick={() => {
+                            if (!n.read) markAsRead(n._id);
+                            setShowDropdown(false);
+                            const destination = getNotificationDestination(n, user?.role);
+                            navigate(destination.path + (destination.search || ""), { state: destination.state });
+                          }}
+                          style={{ cursor: "pointer" }}
+                        >
                           <div className="notification-item-header">
                             <span className="notification-type-badge" style={{ background: statusInfo.bg, color: statusInfo.color }}>
                               {getTypeLabel(n)}
@@ -192,85 +204,26 @@ export const LanguageSwitcher = () => {
       {/* Floating Notification Toasts */}
       <div className="toast-container">
         {toasts.map(toast => (
-          <div key={toast.id} className={`toast toast--${toast.status}`}>
+          <div
+            key={toast.id}
+            className={`toast toast--${toast.status}`}
+            onClick={() => {
+              setToasts(prev => prev.filter(t => t.id !== toast.id));
+              const destination = getNotificationDestination(toast, user?.role);
+              navigate(destination.path + (destination.search || ""), { state: destination.state });
+            }}
+            style={{ cursor: "pointer" }}
+          >
             <div className="toast-content">
               <div className="toast-title">{toast.title}</div>
               <div className="toast-message">{toast.message}</div>
             </div>
-            <button className="toast-close" onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}>
+            <button className="toast-close" onClick={(e) => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)); }}>
               ×
             </button>
           </div>
         ))}
       </div>
-
-      {/* View Full Message Modal */}
-      {selectedNotification && (
-        <div className="notification-detail-modal" onClick={() => setSelectedNotification(null)}>
-          <div className="notification-detail-card" onClick={e => e.stopPropagation()}>
-            <h3>🔔 {isAdmin ? "Admin Notification Details" : "Notification Details"}</h3>
-            
-            <div className="notification-detail-body">
-              {selectedNotification.message}
-            </div>
-
-            <div className="notification-detail-meta">
-              <div>
-                <strong>Status:</strong>{" "}
-                {(() => {
-                  const si = getStatusInfo(selectedNotification);
-                  return (
-                    <span style={{
-                      display: "inline-block",
-                      padding: "0.15rem 0.5rem",
-                      borderRadius: "6px",
-                      fontSize: "0.72rem",
-                      fontWeight: 700,
-                      background: si.bg,
-                      color: si.color,
-                      textTransform: "uppercase"
-                    }}>
-                      {si.label}
-                    </span>
-                  );
-                })()}
-              </div>
-              <div>
-                <strong>Type:</strong>{" "}
-                {getTypeLabel(selectedNotification)}
-              </div>
-              <div>
-                <strong>Transaction ID:</strong>{" "}
-                <code style={{ fontSize: "0.8rem", background: "rgba(0,0,0,0.05)", padding: "0.1rem 0.3rem", borderRadius: "4px" }}>
-                  {selectedNotification.transaction_id?._id || selectedNotification.transaction_id || "N/A"}
-                </code>
-              </div>
-              {(isAdmin || isPurchaser) && (
-                <div>
-                  <strong>Submitted By:</strong>{" "}
-                  {selectedNotification.transaction_id?.salesman_name || "Salesman"}
-                </div>
-              )}
-              {isSalesman && (
-                <div>
-                  <strong>Admin Name:</strong>{" "}
-                  {selectedNotification.transaction_id?.adminUsername || selectedNotification.transaction_id?.returnedBy || "Administrator"}
-                </div>
-              )}
-              <div>
-                <strong>Date:</strong>{" "}
-                {new Date(selectedNotification.createdAt).toLocaleString()}
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1.2rem", gap: "0.5rem" }}>
-              <button className="btn primary" onClick={() => setSelectedNotification(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

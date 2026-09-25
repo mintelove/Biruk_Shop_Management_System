@@ -20,7 +20,7 @@ export const AboutUs = () => {
         <span className="about-divider-icon">✦</span>
       </div>
 
-      {/* Info Cards Grid */}
+      {/* Info Cards Grid - Restored Previous Content */}
       <div className="about-cards-grid">
         {/* Email Card */}
         <div className="about-card">
@@ -65,6 +65,33 @@ export const AboutUs = () => {
         </div>
       </div>
 
+      {/* Additional Professional MAM App Studio Information Section */}
+      <div className="about-studio-section">
+        <div className="about-studio-card">
+          <div className="about-studio-header">
+            <span className="about-studio-badge">About the Studio</span>
+            <h2 className="about-studio-title">MAM App Studio</h2>
+          </div>
+          <p className="about-studio-desc">
+            MAM App Studio is a software development studio focused on building modern, reliable, and user-friendly digital solutions for businesses and organizations.
+          </p>
+          <div className="about-studio-features">
+            <div className="about-studio-feature-item">
+              <div className="about-studio-feature-dot" />
+              <span>Modern inventory & point-of-sale ERP engineering</span>
+            </div>
+            <div className="about-studio-feature-item">
+              <div className="about-studio-feature-dot" />
+              <span>Real-time database synchronization & automated audit trails</span>
+            </div>
+            <div className="about-studio-feature-item">
+              <div className="about-studio-feature-dot" />
+              <span>Intuitive, high-performance responsive interfaces</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Footer */}
       <div className="about-footer">
         <p className="about-footer-text">
@@ -74,3 +101,4 @@ export const AboutUs = () => {
     </div>
   );
 };
+

@@ -33,3 +33,36 @@ export const deleteCategory = async (req, res, next) => {
     next(error);
   }
 };
+
+export const updateCategory = async (req, res, next) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ message: "Category name is required" });
+    const trimmed = name.trim();
+
+    // Check if another category has the same name
+    const existing = await Category.findOne({
+      _id: { $ne: req.params.id },
+      name: { $regex: new RegExp(`^${trimmed}$`, 'i') }
+    });
+    if (existing) return res.status(400).json({ message: "Category already exists" });
+
+    const category = await Category.findById(req.params.id);
+    if (!category) return res.status(404).json({ message: "Category not found" });
+
+    const oldName = category.name;
+    category.name = trimmed;
+    await category.save();
+
+    // If category name changed, synchronize existing products
+    if (oldName !== trimmed) {
+      const { Product } = await import("../models/Product.js");
+      await Product.updateMany({ category: oldName }, { category: trimmed });
+    }
+
+    res.json(category);
+  } catch (error) {
+    next(error);
+  }
+};
+
