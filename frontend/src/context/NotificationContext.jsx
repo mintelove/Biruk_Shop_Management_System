@@ -161,7 +161,7 @@ export const NotificationProvider = ({ children }) => {
       addToast(data);
 
       // Show browser notification
-      const browserTitle = `Sunlight Electric — ${data.title || "Notification"}`;
+      const browserTitle = `SunLight Electric — ${data.title || "Notification"}`;
       showBrowserNotification(browserTitle, data.message || "", () => {
         const dest = getNotificationDestination(data, user?.role);
         window.location.hash = "";

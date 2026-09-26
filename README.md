@@ -1,4 +1,4 @@
-# Shop Management Web Application
+# SunLight Electric Web Application
 
 Full-stack shop management app with JWT authentication, role-based access, live stock updates, and transaction tracking.
 

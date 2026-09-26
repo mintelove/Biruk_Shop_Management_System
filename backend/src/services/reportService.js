@@ -61,7 +61,7 @@ export const generatePdfReport = ({ dateLabel, metrics, salesData, salesmanName 
         .fontSize(16)
         .font("Helvetica-Bold")
         .fillColor(WHITE)
-        .text("Sunlight Electric", marginLeft, 18, {
+        .text("SunLight Electric", marginLeft, 18, {
           width: contentWidth,
           align: "right"
         });
@@ -238,7 +238,7 @@ export const generateCsvReport = ({ salesData, dateLabel, salesmanName }) => {
   });
 
   const metadata = [
-    `Shop Name,Yoya Kids Collection By Meski`,
+    `Shop Name,SunLight Electric`,
     `Salesman Name,${salesmanName || "N/A"}`,
     `Date Range,${dateLabel || "All Time"}`
   ].join("\n");

@@ -124,7 +124,7 @@ export const LanguageSwitcher = () => {
 
   return (
     <div className="language-switcher">
-      <span className="header-shop-name">Sunlight Electric</span>
+      <span className="header-shop-name">SunLight Electric</span>
       <span className="header-divider" />
       <label htmlFor="language-select">{t("common.language")}</label>
       <select id="language-select" value={language} onChange={(e) => switchLanguage(e.target.value)}>

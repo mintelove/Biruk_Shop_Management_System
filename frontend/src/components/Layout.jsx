@@ -264,7 +264,6 @@ export const Layout = () => {
           </div>
           <div className="sidebar-brand-text">
             <h2 className="sidebar-title">{t("app.title")}</h2>
-            <span className="sidebar-subtitle">Sunlight Electric</span>
           </div>
         </div>
 
